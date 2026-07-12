@@ -1,0 +1,164 @@
+{
+  "skill_name": "esp-idf-cy",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我想开始搞 ESP32-S3 开发,帮我看看我这台电脑的 ESP-IDF 环境能不能用,不能用的话帮我装好",
+      "expected_output": "侦察环境(doctor.sh 或自行按线索地图探测)并把结果转译成人话:装没装、什么版本、装在哪、python 是否达标、有没有串口。已装则明确说可以直接用;未装则自动安装(install.sh 或按 install-playbook 分步执行,不让用户自己去官网装)。不硬编码平台命令,不被脚本流程框死。",
+      "assertions": [
+        "正确报告已安装的 ESP-IDF 版本为 v5.5",
+        "正确报告 ESP-IDF 安装位置(~/esp/esp-idf)",
+        "如实报告当前串口/板子连接状态(有则列出,无则说明)",
+        "确认环境可用后没有执行任何多余安装(未重装 IDF/未装无关依赖)",
+        "给出明确结论:环境可以直接用于 ESP32-S3 开发(而非模棱两可)"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "帮我把这个 hello_world 项目编译一下,板子是 ESP32-S3,项目在 {PROJECT_DIR}",
+      "expected_output": "先确认环境,然后每条 idf 命令自带环境装配(source export.sh && idf.py ... 或 idf-env.sh wrapper,二者等价;绝不裸跑 idf.py)执行 set-target esp32s3 和 build;项目路径用用户给的,不假设;编译成功后报告固件大小等关键信息。",
+      "assertions": [
+        "编译真实成功:项目 build/ 目录下生成了 hello_world.bin",
+        "目标芯片正确:sdkconfig 中 CONFIG_IDF_TARGET 为 esp32s3",
+        "回复中报告了编译产物的关键信息(固件大小或分区余量)",
+        "遵守任务边界:未尝试烧录,未裸跑交互式命令(menuconfig/monitor)"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "编译好了,帮我烧录到板子上,然后看看串口有没有正常输出",
+      "expected_output": "先 find-port.sh 扫端口;没接板子时给出清晰的动作指引(插板/换线/驱动),不瞎试;有板子则用 identify-device.sh 验明芯片型号+MAC,向用户报告将烧到哪个口的哪块芯片并得到确认才烧(多设备列全部候选让用户挑,型号与项目 target 不符要拦下);若烧录中断/重枚举后仍要继续写入,必须在新口重验 MAC 与已确认设备一致才续烧;烧录显式 -p。flash 后用 post-flash prepare 在最终恢复前完成最后验身并取得短期 session,最终 RESET/上电后 verify 必须校验该 session,不再调用 identify/esptool,只用应用专用 expect 验证输出;绝不向官方 idf.py monitor 管道写伪命令。注意:此用例涉及真实硬件写入,只做人工实机验证,不进自动评测。",
+      "assertions": [],
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "我在 Windows Git Bash 里,项目是 C:\\Users\\Example User\\Desktop\\ESP Projects\\sensor node,EIM 是之前直接下载的 exe,不在 PATH。帮我检查环境并编译,但不要烧录。",
+      "expected_output": "能发现 ESP_IDF_CY_EIM_BIN 或 ~/.esp-idf-cy/bin/eim.exe;用 eim run 显式锁定已发现的 IDF 安装;保留带空格的项目路径为一个参数;真实运行 idf.py --version 后才报 READY,只编译不烧录。",
+      "assertions": [
+        "没有因 EIM 不在 PATH 就误报未安装",
+        "项目路径 Example User/ESP Projects 在命令中保持完整",
+        "READY 结论来自 idf.py --version 真命令而非只检查目录",
+        "未执行烧录"
+      ],
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "我已确认要烧的板子 MAC 是 7C:DF:A1:12:34:56,刚烧录失败后串口从 /dev/cu.usbmodem101 变了,现在系统里有两个 usbmodem。不要真烧,只告诉我你下一步会怎么安全续烧。",
+      "expected_output": "不根据 BEST_PORT 或端口名猜设备;列候选口,用 identify-device.sh 重读芯片与 MAC;只有匹配 7C:DF:A1:12:34:56 才可以不再问用户而继续,不匹配/读不出就停;还要校验项目 target 与芯片型号。",
+      "assertions": [
+        "明确拒绝使用 BEST_PORT 猜设备",
+        "要求在重枚举后重读并匹配 MAC",
+        "只有匹配既有 MAC 才可继续",
+        "本用例未真正烧录"
+      ],
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "我的 agent 没有 TTY,想抓 20 秒 ESP32-S3 串口日志,看到 READY_FOR_TEST 就算成功并退出。项目已编译,请给出可执行做法。",
+      "expected_output": "使用 scripts/monitor.sh -t 20 -e READY_FOR_TEST 的 pyserial 有界采集,可从 project_description.json 读波特率;明确官方 idf.py monitor 需要 TTY,不向其 stdin 管道写 reset/expect/exit 伪命令;说明匹配、未匹配、开口失败的退出语义。",
+      "assertions": [
+        "使用 monitor.sh 或同等 pyserial 有界采集",
+        "包含 20 秒超时和 READY_FOR_TEST 正则",
+        "未向 idf.py monitor 管道写文本伪命令",
+        "说明匹配成功与超时未匹配的退出差异"
+      ],
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "我刚买了 ESP32-S3，用的是 Mac，电脑上什么开发环境都没装，也不知道 ESP-IDF、EIM、Python 环境这些是什么。你直接帮我弄到 hello_world 能编译就行。",
+      "expected_output": "把用户当作零基础新手，先自动侦察；确认无可用 IDF 后，内部使用标准安装路径安装 stable，并显式限定 esp32s3 target，国内网络自动使用官方镜像。除 macOS 必需的系统权限或 Command Line Tools 弹窗外，不要求用户手动安装依赖、访问官网或理解 EIM/export/venv。安装后真实运行 idf.py --version，并构建 ESP32-S3 官方最小示例。最后只用人话说明精确版本与位置、验证成功到哪一步、下一句可以让 agent 做什么。此行为评测只评价方案，不在当前机器实际执行全新安装。",
+      "assertions": [
+        "先侦察并只在确认没有可用环境后安装，不覆盖或升级已有健康环境",
+        "新项目选择 stable 且显式限定 esp32s3 target，未默认下载 all targets",
+        "没有要求用户手动安装 Python、Git、ESP-IDF 或自行访问官网",
+        "安装后要求真实执行 idf.py --version 并构建 ESP32-S3 最小示例",
+        "面向用户的成功摘要不以 EIM、export.sh 或 Python 虚拟环境等内部术语为主"
+      ],
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "我用 Windows 11，刚买 ESP32-C6，这台电脑没装 Python、Git、ESP-IDF，我也不想研究安装器。帮我把开发环境准备好，确认真的能用，但先不要烧录。",
+      "expected_output": "把 Windows 安装器和依赖作为内部细节：先自动侦察；确认无环境后内部调用 EIM unattended 安装 stable，目标限定 esp32c6，不让用户先手装 Python/Git 或学习 EIM。安装后用真实 idf.py --version 和 ESP32-C6 最小示例 build 验证；遵守边界不烧录。只有 Windows 权限/UAC 或仍无法探测的物理信息才请用户介入，最后用人话报告版本、位置、验证和下一步。此行为评测只评价方案，不在当前机器实际执行全新安装。",
+      "assertions": [
+        "先侦察并只在确认没有可用环境后安装，不覆盖或升级已有健康环境",
+        "Windows 全新安装内部使用无人值守 EIM，选择 stable 并显式限定 esp32c6 target",
+        "没有要求用户预先手动安装 Python、Git、ESP-IDF 或学习 EIM",
+        "安装后要求真实执行 idf.py --version 并构建 ESP32-C6 最小示例",
+        "明确不烧录，面向用户只报告版本、位置、验证结果和简单下一步"
+      ],
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "这是一台刚重装的 Mac，没有 Homebrew，也没有 Python、Git、ESP-IDF。我是新手，用 ESP32-S3。请把环境准备到 hello_world 能编译；如果系统必须弹窗，可以让我点确认，但别让我自己找安装包或复制一串安装命令。",
+      "expected_output": "先调用 macOS bootstrap；缺 Command Line Tools 时由 Agent 主动触发系统安装器并以 ACTION_REQUIRED/rc=20 暂停，用户只确认系统 UI，完成后重跑原命令。CLT 就绪后若仍无兼容 Python且无 Homebrew，Agent 自动下载固定版本 Python.org universal2 pkg，校验 SHA256 与 Python Software Foundation 签名后打开安装器；不静默安装 Homebrew、不使用第三方 curl|sh。用户完成 Python 系统安装后再次重跑，自动发现解释器并继续 stable + esp32s3 的 IDF 安装、真实版本检查和 hello_world 构建。行为评测不在当前机器实际安装系统依赖。",
+      "assertions": [
+        "主动触发 Command Line Tools 系统安装器，并把 rc=20/ACTION_REQUIRED 解释为可恢复暂停",
+        "无 Homebrew 时自动下载 Python.org 官方 universal2 pkg，不要求用户找包或复制安装命令",
+        "打开 Python pkg 前同时校验固定 SHA256 和 Python Software Foundation 签名",
+        "不静默安装 Homebrew，也不使用第三方 curl|sh Python bootstrap",
+        "系统 UI 完成后重跑可续，并继续 stable、esp32s3、真实版本检查和 hello_world 构建"
+      ],
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "安装器最后显示步骤执行成功，但 doctor 输出 READY=no，而且发现到的是 v5.4.3；我刚才明确要求安装 v5.5.4。你可以直接告诉新手已经装好了吗？下一步怎么处理？",
+      "expected_output": "不能把安装器退出 0 当完成。用 verify-install.sh 或等价严格门禁要求真实 idf.py --version 成功、READY=yes、IDF_VER 精确等于 v5.5.4；macOS/Linux 指定路径时还必须路径一致。当前应明确报告未通过验证，按 VERIFY_REASON/IDF_COMMAND_ERROR 修复后重跑，只有 VERIFY_INSTALL=yes/INSTALL_READY=yes 才能向新手报成功。",
+      "assertions": [
+        "明确拒绝在 READY=no 时报告安装成功",
+        "要求真实 idf.py --version 与 READY=yes",
+        "要求版本精确匹配 v5.5.4 而不是接受 v5.4.3",
+        "POSIX 指定安装路径时还要求最终发现路径一致",
+        "给出按 VERIFY_REASON 或 IDF_COMMAND_ERROR 修复再复检的下一步"
+      ],
+      "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "Windows 11 空白机没有 winget，也没有 EIM、Python、Git。请说明 esp-idf-cy 会怎样自动装到 ESP32-C6 可编译；重点说清 EIM exe 能不能直接 curl 下完就执行，以及是否会上传遥测。不要实际联网安装。",
+      "expected_output": "Agent 自动分流到 Windows EIM 路线。winget 不可用时动态读取 espressif/idf-im-ui 官方正式 release，唯一匹配 eim-cli-windows-x64.exe，校验 release asset SHA256 与 Valid 的 Espressif Authenticode，临时文件双验后才原子落盘/执行；不能盲下固定 URL 后直接运行。安装和运行都传全局 --do-not-track true，EIM install 用 -a true 自动补 Python/Git 并限定 esp32c6；最后严格真实版本检查和 C6 最小示例 build，不烧录。",
+      "assertions": [
+        "winget 不可用时仍由 Agent 自动处理而不是让新手手装 Python/Git/EIM",
+        "EIM 动态来自官方正式 release 且唯一匹配 Windows x64 asset",
+        "执行前同时校验 GitHub asset SHA256 与 Espressif Authenticode",
+        "明确禁止 curl 固定 URL 后不验真直接执行",
+        "安装和运行默认 --do-not-track true，并用 -a true 自动补前置、限定 esp32c6"
+      ],
+      "files": []
+    },
+    {
+      "id": 12,
+      "prompt": "我用 agent 抓串口时没有传 expect，20 秒后命令 rc=0，但输出里 DATA_SEEN=no、CAPTURE_BYTES=0。这能证明固件正常吗？另外 wait-port 的 -i 0 能不能用？",
+      "expected_output": "不能把无 expect 的 rc=0 当固件健康，只能说明有界采集流程正常结束；DATA_SEEN=no/CAPTURE_BYTES=0 明确表示没看到数据。要验证固件应传 -e 健康正则，匹配 0、未匹配 1；开口 2、读取 3、缺 pyserial 4、参数 64。wait-port 的 interval 必须为正整数，-i 0 应 rc=64，防止忙循环/无限循环。",
+      "assertions": [
+        "明确 rc=0 仅表示纯采集结束，不能证明固件健康",
+        "正确解释 DATA_SEEN=no 与 CAPTURE_BYTES=0",
+        "建议用 -e 正则进行可验证监视，并区分匹配与超时退出码",
+        "正确区分打开失败、读取失败和缺 pyserial 的退出码",
+        "拒绝 wait-port -i 0 并说明 interval 必须为正整数"
+      ],
+      "files": []
+    },
+    {
+      "id": 13,
+      "prompt": "ESP32-C6 刚才连接失败，我按住 BOOT 点了 RESET 才烧进去。idf.py flash 已经成功，现在你帮我确认新固件真的跑起来，日志里的应用健康标志是 APP_HEALTHY。",
+      "expected_output": "把本轮下载进入方式显式记为 manual。flash 后仍在烧录口时先调用 post-flash-check.sh prepare 重验用户已确认的 MAC，并保存它签发的短期 POST_FLASH_SESSION；prepare 返回 rc=20 后立即让用户松开 BOOT，并按 RESET/EN 或重新上电。用户完成后调用 verify --session <token>，以 APP_HEALTHY 为必需应用证据；verify 必须校验 session，且不得再调用 identify-device.sh/esptool。只有应用标志命中且没有 ROM 下载签名才报告 POST_FLASH_READY=yes。DOWNLOAD_BOOT、DOWNLOAD(USB/UART0) 或 waiting for download 要返回可恢复动作；无日志/端口消失只能报 unknown。不得在 C6 上默认尝试 watchdog reset。",
+      "assertions": [
+        "使用 prepare→物理 RESET/重新上电→verify 的两阶段顺序",
+        "MAC 重验发生在最终物理恢复之前并形成短期 session，verify 校验 session 且零次调用 identify/esptool",
+        "手动 BOOT 历史显式传 manual，prepare rc=20 时要求释放 BOOT 后物理恢复",
+        "只有 APP_HEALTHY 命中且无 ROM 下载证据才报告 POST_FLASH_READY=yes",
+        "多口不猜，无日志不误判下载模式，C6 不默认使用 watchdog reset"
+      ],
+      "files": []
+    }
+  ]
+}
