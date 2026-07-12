@@ -1,17 +1,43 @@
 #!/usr/bin/env bash
 # esp-idf-cy · 环境体检。每次 skill 触发先跑这个(Step 0),输出机器可读的 KEY=VALUE。
-# 用法: bash doctor.sh [--no-net](跳过联网探测,更快)
+# 用法: bash doctor.sh [--no-net] [--project <项目目录>]
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 SKIP_NET=no
+PROJECT_DIR=""
+PROJECT_CHECK_OK=yes
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-net) SKIP_NET=yes; shift ;;
+    --project)
+      [ $# -ge 2 ] || { echo "ERROR=--project 缺少路径" >&2; exit 64; }
+      PROJECT_DIR="$(normalize_shell_path "$2")"; shift 2 ;;
     *) echo "ERROR=未知参数: $1" >&2; exit 64 ;;
   esac
 done
+
+if [ -n "$PROJECT_DIR" ]; then
+  if [ -d "$PROJECT_DIR" ]; then PROJECT_DIR="$(canonical_existing_dir "$PROJECT_DIR")"; fi
+  echo "PROJECT_DIR=$PROJECT_DIR"
+  if [ ! -d "$PROJECT_DIR" ]; then
+    echo "PROJECT_READY=no"
+    echo "PROJECT_ERROR=项目目录不存在" >&2
+    PROJECT_CHECK_OK=no
+  elif path_has_whitespace "$PROJECT_DIR"; then
+    echo "PROJECT_READY=no"
+    echo "PROJECT_ERROR=ESP-IDF 不支持项目路径包含空白" >&2
+    PROJECT_CHECK_OK=no
+  elif [ ! -f "$PROJECT_DIR/CMakeLists.txt" ]; then
+    echo "PROJECT_READY=no"
+    echo "PROJECT_ERROR=缺少顶层 CMakeLists.txt" >&2
+    PROJECT_CHECK_OK=no
+  else
+    echo "PROJECT_READY=yes"
+  fi
+  export ESP_IDF_CY_PROJECT_DIR="$PROJECT_DIR"
+fi
 
 echo "OS=$OS"
 
@@ -99,7 +125,7 @@ else
 fi
 
 # 结论
-if [ "$IDF_FOUND" = yes ] && [ "${IDF_CHECK_RC:-1}" -eq 0 ]; then
+if [ "$IDF_FOUND" = yes ] && [ "${IDF_CHECK_RC:-1}" -eq 0 ] && [ "$PROJECT_CHECK_OK" = yes ]; then
   echo "READY=yes"
 else
   echo "READY=no"
@@ -109,7 +135,7 @@ else
     if [ -n "${DISCOVERY_ERROR:-}" ]; then
       echo "HINT=$DISCOVERY_ERROR;显式覆盖不会回退到其他安装" >&2
     else
-      echo "HINT=未找到 ESP-IDF,运行 install.sh 自动安装;若装在了非常规位置,设 ESP_IDF_CY_IDF_PATH 指过去" >&2
+      echo "HINT=未找到 ESP-IDF;先结合项目 build/project_description.json、EIM 登记和 IDE 设置做有界发现,确认确实没有后再安装;非常规位置可设 ESP_IDF_CY_IDF_PATH" >&2
     fi
   fi
 fi

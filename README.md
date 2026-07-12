@@ -83,10 +83,10 @@ ln -s /你的绝对路径/esp-idf-cy ~/.claude/skills/esp-idf-cy
 5. 烧录后先在最终恢复前重验 MAC；手动下载模式会引导用户释放 BOOT 后按 RESET/重新上电，
    最终恢复后不再用 esptool 扰动板子，只靠应用专用健康日志完成验证。
 
-macOS 可以使用 EIM，乐鑫当前也推荐通过 Homebrew 安装；它不是 Windows 专属工具。这个 Skill
-不会把 EIM 设为空白 Mac 的强制前置：EIM 在 macOS 上会检查依赖，却不像 Windows 那样自动安装
-所有缺失前置。技能默认先补齐 Command Line Tools/Python，并走依赖更少的官方脚本路线；若发现
-已有且健康的 EIM 安装，则会直接复用。Windows 仍优先把 EIM 作为安装和免激活执行通道。
+macOS 和 Windows 都支持 EIM。Skill 会根据实机动态分流：Windows 优先 EIM；Mac 已有健康 IDF
+就复用，已有可用 EIM 或 Homebrew 时走 ESP-IDF v6.0+ 官方推荐的 EIM CLI；EIM 与 Homebrew 都
+没有时不静默安装新的包管理器，改走仍受官方支持的 Command Line Tools/Python + ESP-IDF 官方脚本路线。
+用户传入的项目、IDF位置和 EIM 登记都是探测结果，不用本机用户名或固定绝对路径硬编码。
 
 ## 文件结构
 
@@ -146,12 +146,17 @@ brew install eim                  # CLI
 # 或 brew install --cask eim-gui  # 图形界面
 ```
 
-对自己手动配置的新手，EIM GUI 是很友好的入口；对由本 Skill 接管的空白 Mac，默认先走最小
-bootstrap + ESP-IDF 官方脚本，避免为了安装器本身额外引入 Homebrew 和一组 POSIX 前置库。
-已经由 EIM 管理的 ESP-IDF 会被自动发现，并通过原生 `eim run` 使用。
+ESP-IDF v6.0 起，EIM 是乐鑫在 macOS 上的默认推荐安装方式。这个 Skill 采用自适应策略：
+
+- 已有健康 IDF：发现并验证后直接复用，不重复安装。
+- 已有 EIM、没有健康 IDF：复用 EIM，由它真实检查依赖并安装；失败时 Agent 按缺项换路或说明。
+- 已有 Homebrew、没有 IDF：由 Agent 补官方前置并使用 EIM CLI。
+- EIM 与 Homebrew 都没有：不静默安装长期包管理器，使用仍受官方支持的脚本路线。
+- 用户明确指定精确 IDF 仓库路径：保留该语义，使用官方脚本路线，不把 EIM 的 base path 偷换成仓库路径。
 
 参考：[乐鑫 EIM 平台与安装说明](https://docs.espressif.com/projects/idf-im-ui/en/latest/index.html)、
-[macOS/POSIX 前置依赖说明](https://docs.espressif.com/projects/idf-im-ui/en/latest/prerequisites.html)。
+[macOS/POSIX 前置依赖说明](https://docs.espressif.com/projects/idf-im-ui/en/latest/prerequisites.html)、
+[ESP-IDF v6.0+ macOS 安装说明](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/macos-setup.html)。
 
 ### 空白电脑上的依赖会自动安装吗？
 
@@ -159,6 +164,21 @@ bootstrap + ESP-IDF 官方脚本，避免为了安装器本身额外引入 Homeb
 Tools 安装，并复用 Homebrew 安装兼容 Python，或下载并验签 Python.org 官方安装包。苹果系统窗口、
 管理员授权等边界仍需用户本人确认。macOS EIM 本身只会检查 POSIX 前置依赖，缺失时不会全部代装；
 因此 Skill 不会把“EIM 已安装”等同于“空白 Mac 已准备完成”。
+
+### Agent 会操作 EIM GUI 吗？
+
+CLI 是默认且可移植的路线。用户明确要求 GUI、当前宿主又提供 Computer Use 时，Agent 可以打开
+EIM并操作普通按钮、版本选择和日志页面；密码、Touch ID、UAC、macOS 安全窗口与许可确认必须
+由用户本人完成。没有 Computer Use 时自动回到 CLI，不要求新手照着长教程自己点击。
+
+### 安装位置或项目位置不一样怎么办？
+
+Skill 按证据发现：项目 `build/project_description.json`、环境变量、EIM 登记、IDE设置和受限范围
+搜索，`~/esp`/`C:\esp` 只作为最后候选。发现候选后还会真实执行 `idf.py --version`，不会仅看目录。
+
+ESP-IDF 官方不支持 IDF 或项目路径包含空格。Skill 会在编译前拦截这种路径；不会假装“加引号”
+就能解决。Agent 会检查项目依赖后，在无空格位置建立受管工作副本或经用户确认迁移，不直接覆盖原项目。
+参见[乐鑫命令行项目说明](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/linux-macos-start-project.html)。
 
 ### 会自动升级已有 ESP-IDF 吗？
 
@@ -181,7 +201,8 @@ Agent 会话通常没有交互式 TTY。技能附带有界的 pyserial 采集器
 
 ## 验证边界
 
-仓库中的自动测试覆盖脚本参数、安装门禁、环境边界、macOS EIM 原生执行、Windows EIM 静态约束、串口控制线极性和
+仓库中的自动测试覆盖脚本参数、动态路径发现、空格路径拒绝、macOS EIM路由与原生执行、
+Windows EIM 静态约束、安装门禁、串口控制线极性和
 烧录后状态机。macOS / Windows 空白机安装、不同网络环境、USB 驱动以及各型号实机烧录仍受
 外部系统和硬件影响；软件回归通过不等于所有平台与开发板组合都已完成实机验收。烧录和硬件验证
 应在目标设备上执行，重点覆盖 S3/C3/C6 原生 USB 与 CP210x/CH340 桥接串口。

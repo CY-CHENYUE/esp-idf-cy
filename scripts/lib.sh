@@ -109,6 +109,72 @@ eim_command_string() {
   printf '%s\n' "$out"
 }
 
+# ESP-IDF/CMake 官方不支持 IDF 或项目路径含空白。参数引用正确只能防止 shell 拆词，
+# 不能让上游构建系统获得这种能力；统一在真正执行前 fail closed。
+path_has_whitespace() {
+  case "${1:-}" in *[[:space:]]*) return 0 ;; *) return 1 ;; esac
+}
+
+# 从 idf.py argv 中提取项目目录。只读取参数，不猜当前目录；调用方可在没有 -C 时
+# 再按自己的工作上下文判断。
+project_dir_from_args() {
+  local expect=no arg
+  for arg in "$@"; do
+    if [ "$expect" = yes ]; then
+      printf '%s\n' "$arg"
+      return 0
+    fi
+    case "$arg" in
+      -C|--project-dir) expect=yes ;;
+      --project-dir=*) printf '%s\n' "${arg#--project-dir=}"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
+normalize_shell_path() {
+  if [ "$OS" = windows ]; then
+    cygpath -u "$1" 2>/dev/null || printf '%s\n' "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+canonical_existing_dir() {
+  local normalized
+  normalized="$(normalize_shell_path "$1")"
+  [ -d "$normalized" ] || return 1
+  (cd -- "$normalized" 2>/dev/null && pwd -P)
+}
+
+# 已构建项目的 project_description.json 记录了实际使用的 idf_path。这是发现非常规
+# 安装位置的强证据，比扫描整个磁盘或假定固定目录更可靠。
+project_recorded_idf() {
+  local project metadata py recorded=""
+  project="$(canonical_existing_dir "$1" || normalize_shell_path "$1")"
+  metadata="$project/build/project_description.json"
+  [ -f "$metadata" ] || return 1
+  py="$(find_python || true)"
+  if [ -n "$py" ]; then
+    recorded="$($py - "$metadata" <<'PYEOF'
+import json, sys
+try:
+    value = json.load(open(sys.argv[1], encoding="utf-8")).get("idf_path", "")
+except (OSError, ValueError):
+    value = ""
+print(value if isinstance(value, str) else "")
+PYEOF
+)"
+  else
+    recorded="$(grep -o '"idf_path"[[:space:]]*:[[:space:]]*"[^"]*"' "$metadata" 2>/dev/null \
+      | head -1 | sed 's/.*:[[:space:]]*"//; s/"$//')"
+  fi
+  [ -n "$recorded" ] || return 1
+  recorded="$(normalize_shell_path "$recorded")"
+  is_idf_dir "$recorded" || return 1
+  printf '%s\n' "$recorded"
+}
+
 # ---------------- 通用 ----------------
 # 便携 timeout(macOS 默认没有 timeout;brew coreutils 里叫 gtimeout)
 run_with_timeout() {
@@ -225,9 +291,11 @@ idf_dir_version() {
 
 # 探测已装 ESP-IDF。结果写入全局变量:
 #   IDF_FOUND=yes|no  IDF_KIND=eim|legacy  FOUND_IDF_PATH=  IDF_VER=  IDF_CANDIDATES=path1;path2;...
-# 优先级:ESP_IDF_CY_IDF_PATH 显式指定 > 当前 shell 的 IDF_PATH > EIM 登记(selected 优先) > 惯例路径
+# 优先级:显式指定 > 项目构建元数据 > 当前 IDF_PATH > EIM 登记 > 惯例路径。
+# 惯例路径只是最后线索，不是“没装”的结论；Agent 仍应按 SKILL.md 做有界发现。
 find_idf() {
   IDF_FOUND=no; IDF_KIND=""; FOUND_IDF_PATH=""; IDF_VER=""; IDF_CANDIDATES=""
+  IDF_SELECTED_BY_PROJECT=no
   DISCOVERY_ERROR=""
   local home; home="$(user_home)"
   local cand=""
@@ -249,12 +317,24 @@ find_idf() {
     return 0
   fi
 
-  # 1) 当前环境已有 IDF_PATH
+  # 1) 项目自己的构建元数据(若调用方提供项目上下文)。对已有项目,它比可能残留的
+  #    ambient IDF_PATH 更能代表项目实际使用版本；专用显式覆盖仍由第 0 步优先。
+  if [ -z "$FOUND_IDF_PATH" ] && [ -n "${ESP_IDF_CY_PROJECT_DIR:-}" ]; then
+    local project_idf
+    project_idf="$(project_recorded_idf "$ESP_IDF_CY_PROJECT_DIR" || true)"
+    if [ -n "$project_idf" ]; then
+      FOUND_IDF_PATH="$project_idf"; IDF_KIND=legacy
+      IDF_SELECTED_BY_PROJECT=yes
+      cand="$cand;$project_idf"
+    fi
+  fi
+
+  # 2) 当前环境已有 IDF_PATH
   if [ -z "$FOUND_IDF_PATH" ] && [ -n "${IDF_PATH:-}" ] && is_idf_dir "$IDF_PATH"; then
     FOUND_IDF_PATH="$IDF_PATH"; IDF_KIND=legacy
   fi
 
-  # 2) EIM 登记文件(跨平台;VS Code 扩展也读它)
+  # 3) EIM 登记文件(跨平台;VS Code 扩展也读它)
   local ej; ej="$(eim_json_path)"
   if [ -f "$ej" ]; then
     local line p n first_eim="" registered_path=""
@@ -283,7 +363,7 @@ EOF
     fi
   fi
 
-  # 3) 惯例路径:~/esp/esp-idf 及多版本目录 ~/esp/esp-idf-*;Windows 另加 EIM 默认 C:\esp\<ver>
+  # 4) 惯例路径:~/esp/esp-idf 及多版本目录 ~/esp/esp-idf-*;Windows 另加 EIM 默认 C:\esp\<ver>
   local d
   for d in "$home/esp/esp-idf" "$home/esp/esp-idf-"*; do
     is_idf_dir "$d" || continue

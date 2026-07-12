@@ -15,6 +15,19 @@ if [ $# -eq 0 ]; then
   exit 64
 fi
 
+PROJECT_DIR="$(project_dir_from_args "$@" || true)"
+if [ -n "$PROJECT_DIR" ]; then
+  PROJECT_DIR="$(normalize_shell_path "$PROJECT_DIR")"
+  [ -d "$PROJECT_DIR" ] || { echo "ERROR=项目目录不存在: $PROJECT_DIR" >&2; exit 2; }
+  PROJECT_DIR="$(canonical_existing_dir "$PROJECT_DIR")"
+  if path_has_whitespace "$PROJECT_DIR"; then
+    echo "ERROR=ESP-IDF 官方构建系统不支持项目路径包含空白: $PROJECT_DIR" >&2
+    echo "HINT=不要只加引号后重试;请让 Agent 在用户目录/磁盘上选择无空格路径,经确认迁移或建立受管工作副本" >&2
+    exit 8
+  fi
+  export ESP_IDF_CY_PROJECT_DIR="$PROJECT_DIR"
+fi
+
 find_idf
 if [ "$IDF_FOUND" != yes ]; then
   echo "IDF_FOUND=no"
@@ -26,7 +39,15 @@ if [ "$IDF_FOUND" != yes ]; then
   exit 2
 fi
 
+CANONICAL_IDF_PATH="$(canonical_existing_dir "$FOUND_IDF_PATH" || printf '%s\n' "$FOUND_IDF_PATH")"
+if path_has_whitespace "$CANONICAL_IDF_PATH"; then
+  echo "ERROR=ESP-IDF 官方构建系统不支持 IDF 安装路径包含空白: $FOUND_IDF_PATH" >&2
+  echo "HINT=选择无空格的 IDF 安装位置;不要用 shell 引号掩盖上游构建限制" >&2
+  exit 8
+fi
+
 if [ "$IDF_KIND" = legacy ] \
+   && [ "${IDF_SELECTED_BY_PROJECT:-no}" != yes ] \
    && [ -z "${ESP_IDF_CY_IDF_PATH:-}" ] \
    && [ -z "${IDF_PATH:-}" ] \
    && [ -n "$IDF_CANDIDATES" ]; then

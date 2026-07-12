@@ -5,9 +5,10 @@
 #   --version  默认 stable;给 minor 系列(如 v5.5)时自动解析到该系列最新 patch
 #   --targets  芯片目标,默认 all;已知板子时应显式传 esp32s3/esp32c6 等以减少下载
 #   --path     IDF 仓库位置,默认 <用户主目录>/esp/esp-idf(官方惯例);Windows 走 EIM 时由 EIM 管理
+#   --route-only 只输出当前实机将选择的安装路线,不安装 Python/IDF(仍会检查 CLT、网络和版本)
 #
-# 路线:macOS = bootstrap(CLTools + Python)后走官方 install.sh 流程,国内网络自动启用官方镜像;
-#       Linux = 官方 install.sh 流程;Windows = 官方 EIM CLI,前置依赖 -a true 全自动。
+# 路线:macOS = 已有可用 EIM/Homebrew 时优先官方 EIM CLI,否则 bootstrap 后走官方 install.sh;
+#       Linux = 官方 install.sh;Windows = 官方 EIM CLI,前置依赖 -a true 全自动。
 # 注意:全程下载量以 GB 计,agent 调用时应放宽超时或后台运行。
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +18,9 @@ REQUESTED_VERSION=stable
 VERSION=""
 TARGETS=all
 IDF_DIR=""
+IDF_DIR_EXPLICIT=no
 RESOLVE_ONLY=no
+ROUTE_ONLY=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --version|--targets|--path)
@@ -25,17 +28,64 @@ while [ $# -gt 0 ]; do
       case "$1" in
         --version) REQUESTED_VERSION="$2" ;;
         --targets) TARGETS="$2" ;;
-        --path) IDF_DIR="$2" ;;
+        --path) IDF_DIR="$2"; IDF_DIR_EXPLICIT=yes ;;
       esac
       shift 2
       ;;
     --resolve-only) RESOLVE_ONLY=yes; shift ;;
+    --route-only) ROUTE_ONLY=yes; shift ;;
     *) echo "未知参数: $1" >&2; exit 64 ;;
   esac
 done
 
 HOME_DIR="$(user_home)"
 [ -z "$IDF_DIR" ] && IDF_DIR="$HOME_DIR/esp/esp-idf"
+
+INSTALL_MODE="${ESP_IDF_CY_INSTALL_MODE:-auto}"
+case "$INSTALL_MODE" in auto|eim|official-script) ;; *)
+  echo "ERROR=ESP_IDF_CY_INSTALL_MODE 只能是 auto/eim/official-script" >&2; exit 64 ;;
+esac
+
+mac_brew_bin() {
+  if [ "${ESP_IDF_CY_TEST_NO_BREW:-no}" = yes ]; then
+    return 1
+  elif [ -n "${ESP_IDF_CY_BREW_BIN:-}" ] && [ -x "$ESP_IDF_CY_BREW_BIN" ]; then
+    printf '%s\n' "$ESP_IDF_CY_BREW_BIN"
+  elif have brew; then
+    command -v brew
+  else
+    return 1
+  fi
+}
+
+choose_install_route() {
+  case "$OS" in
+    windows) printf '%s\n' windows-eim ;;
+    linux)   printf '%s\n' linux-official-script ;;
+    mac)
+      # --path 在本 Skill 中表示“精确 IDF 仓库路径”;EIM 的 -p 是 base path,
+      # 语义不同。显式路径因此保持官方 install.sh 路线,绝不悄悄改位置。
+      if [ "$IDF_DIR_EXPLICIT" = yes ]; then
+        printf '%s\n' mac-official-script
+      elif [ "$INSTALL_MODE" = official-script ]; then
+        printf '%s\n' mac-official-script
+      elif [ "$INSTALL_MODE" = eim ]; then
+        if find_eim >/dev/null 2>&1 || mac_brew_bin >/dev/null; then printf '%s\n' mac-eim; else
+          echo "ACTION_REQUIRED=choose_homebrew_or_official_script_route" >&2
+          echo "ERROR=明确要求 EIM,但这台 Mac 没有可用 EIM 或 Homebrew;不会静默安装系统包管理器" >&2
+          return 20
+        fi
+      elif find_eim >/dev/null 2>&1 || mac_brew_bin >/dev/null; then
+        # v6.0+ 官方默认推荐 EIM;已有 EIM 或 Homebrew 时优先走官方 EIM 路线。
+        printf '%s\n' mac-eim
+      else
+        # 没有 Homebrew 时不把安装包管理器变成前置,继续使用仍受官方支持的脚本路线。
+        printf '%s\n' mac-official-script
+      fi
+      ;;
+    *) echo "ERROR=不支持的平台 $OS" >&2; return 1 ;;
+  esac
+}
 
 # macOS 的 stable 版本解析依赖 git,而空白机的 git 来自 Command Line Tools。
 # 先主动触发系统安装器;rc=20 表示等用户完成系统 UI 后重跑即可续上。
@@ -102,6 +152,25 @@ fi
 echo "VERSION_REQUESTED=$REQUESTED_VERSION"
 echo "VERSION_RESOLVED=$VERSION"
 [ "$RESOLVE_ONLY" = yes ] && exit 0
+
+INSTALL_ROUTE="$(choose_install_route)" || exit $?
+echo "INSTALL_ROUTE=$INSTALL_ROUTE"
+case "$INSTALL_ROUTE" in
+  mac-eim)
+    if path_has_whitespace "$HOME_DIR"; then
+      echo "ERROR=EIM 默认 base path 位于用户目录,但真实用户目录含空白: $HOME_DIR" >&2
+      echo "HINT=请让 Agent 选择无空格的安装 base path或改用受支持的无空格账户/磁盘位置" >&2
+      exit 8
+    fi
+    ;;
+  mac-official-script|linux-official-script)
+    if path_has_whitespace "$IDF_DIR"; then
+      echo "ERROR=ESP-IDF 官方构建系统不支持安装路径包含空白: $IDF_DIR" >&2
+      exit 8
+    fi
+    ;;
+esac
+[ "$ROUTE_ONLY" = yes ] && exit 0
 
 # ---------- python 版本闸门 / macOS 自动 bootstrap ----------
 MIN_PY="$(idf_min_python "$VERSION")"
@@ -255,14 +324,24 @@ install_posix() {
   }
 }
 
-case "$OS" in
-  windows)    install_windows ;;
-  mac|linux)  install_posix ;;
-  *)          echo "ERROR=不支持的平台 $OS" >&2; exit 1 ;;
+case "$INSTALL_ROUTE" in
+  windows-eim) install_windows ;;
+  mac-eim)
+    MAC_EIM_OUT="$(bash "$SCRIPT_DIR/install-eim-macos.sh" \
+      --version "$VERSION" --targets "$TARGETS" --net "$NET" 2>&1)"
+    MAC_EIM_RC=$?
+    printf '%s\n' "$MAC_EIM_OUT"
+    [ "$MAC_EIM_RC" -eq 0 ] || exit "$MAC_EIM_RC"
+    MAC_EIM_BIN="$(printf '%s\n' "$MAC_EIM_OUT" | sed -n 's/^EIM_BIN=//p' | tail -1)"
+    [ -n "$MAC_EIM_BIN" ] || { echo "ERROR=macOS EIM 安装未返回 EIM_BIN" >&2; exit 7; }
+    export ESP_IDF_CY_EIM_BIN="$MAC_EIM_BIN"
+    ;;
+  mac-official-script|linux-official-script) install_posix ;;
+  *) echo "ERROR=未知安装路线 $INSTALL_ROUTE" >&2; exit 1 ;;
 esac
 
 echo "STEP=安装完成,复检环境"
-if [ "$OS" = windows ]; then
+if [ "$INSTALL_ROUTE" = windows-eim ] || [ "$INSTALL_ROUTE" = mac-eim ]; then
   bash "$SCRIPT_DIR/verify-install.sh" --version "$VERSION" || exit $?
 else
   bash "$SCRIPT_DIR/verify-install.sh" --version "$VERSION" --path "$IDF_DIR" || exit $?

@@ -20,6 +20,9 @@ grep -Fq 'GNU General Public License v3.0 only' "$ROOT/README.md" || fail licens
 pass license-consistency
 
 bash "$ROOT/tests/test_eim_windows_static.sh" || fail eim-windows-static
+bash "$ROOT/tests/test_agent_first_contract.sh" || fail agent-first-contract
+bash "$ROOT/tests/test_macos_eim_install.sh" || fail macos-eim-install
+bash "$ROOT/tests/test_project_discovery.sh" || fail project-discovery
 bash "$ROOT/tests/test_network_probe.sh" || fail network-probe
 bash "$ROOT/tests/test_install_readiness.sh" || fail install-readiness
 bash "$ROOT/tests/test_runtime_boundaries.sh" || fail runtime-boundaries
@@ -188,7 +191,7 @@ set -e
 [ ! -e "$TMP/open-failing-signature.log" ] || fail mac-python-pkgutil-opened
 pass mac-python-pkgutil-rc
 
-# EIM 命令字符串要保留空格路径的 argv 边界。
+# EIM quoting helper仍要保留通用 argv 边界;实际IDF/项目路径含空白会由wrapper另行拒绝。
 ACTUAL="$(bash -c '. "$1"; shift; eim_command_string "$@"' _ \
   "$ROOT/scripts/lib.sh" idf.py -C 'C:\Users\A B\project' build)"
 EXPECTED='"idf.py" "-C" "C:\Users\A B\project" "build"'
@@ -214,20 +217,21 @@ chmod +x "$TMP/mock-powershell"
 OUT="$(ESP_IDF_CY_OS=windows ESP_IDF_CY_EIM_BIN="$TMP/mock-eim" \
   ESP_IDF_CY_POWERSHELL_BIN="$TMP/mock-powershell" \
   ESP_IDF_CY_EIM_JSON="$TMP/eim_idf.json" \
-  bash "$ROOT/scripts/idf-env.sh" idf.py -C 'C:\Users\A B\project' build)" || fail eim-wrapper
+  bash "$ROOT/scripts/idf-env.sh" idf.py --version)" || fail eim-wrapper
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<RunIdf>' || fail eim-wrapper-run
-printf '%s\n' "$OUT" | grep -Fqx 'ARG=<"idf.py" "-C" "C:\Users\A B\project" "build">' || fail eim-wrapper-command
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<"idf.py" "--version">' || fail eim-wrapper-command
 printf '%s\n' "$OUT" | grep -Fqx "ARG=<$TMP/eim-idf>" || fail eim-wrapper-idf
 pass eim-wrapper
 
 # 模拟 macOS+EIM wrapper:POSIX 必须直接调用原生 EIM,不能落入 Windows PowerShell helper。
+mkdir -p "$TMP/project-safe"
 OUT="$(ESP_IDF_CY_OS=mac ESP_IDF_CY_EIM_BIN="$TMP/mock-eim" \
   ESP_IDF_CY_EIM_JSON="$TMP/eim_idf.json" \
-  bash "$ROOT/scripts/idf-env.sh" idf.py -C "$TMP/project with spaces" build)" || fail mac-eim-wrapper
+  bash "$ROOT/scripts/idf-env.sh" idf.py -C "$TMP/project-safe" build)" || fail mac-eim-wrapper
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<--do-not-track>' || fail mac-eim-wrapper-privacy-flag
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<true>' || fail mac-eim-wrapper-privacy-value
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<run>' || fail mac-eim-wrapper-run
-printf '%s\n' "$OUT" | grep -Fqx "ARG=<\"idf.py\" \"-C\" \"$TMP/project with spaces\" \"build\">" || fail mac-eim-wrapper-command
+printf '%s\n' "$OUT" | grep -Fqx "ARG=<\"idf.py\" \"-C\" \"$TMP/project-safe\" \"build\">" || fail mac-eim-wrapper-command
 printf '%s\n' "$OUT" | grep -Fqx "ARG=<$TMP/eim-idf>" || fail mac-eim-wrapper-idf
 pass mac-eim-wrapper
 

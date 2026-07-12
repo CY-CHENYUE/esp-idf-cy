@@ -4,10 +4,10 @@
     {
       "id": 1,
       "prompt": "我想开始搞 ESP32-S3 开发,帮我看看我这台电脑的 ESP-IDF 环境能不能用,不能用的话帮我装好",
-      "expected_output": "侦察环境(doctor.sh 或自行按线索地图探测)并把结果转译成人话:装没装、什么版本、装在哪、python 是否达标、有没有串口。已装则明确说可以直接用;未装则自动安装(install.sh 或按 install-playbook 分步执行,不让用户自己去官网装)。不硬编码平台命令,不被脚本流程框死。",
+      "expected_output": "侦察环境(doctor.sh 或自行按线索地图探测)并把结果转译成人话:装没装、实际版本、实际位置、python 是否达标、有没有串口。默认目录没有时继续从项目元数据、EIM和IDE设置做有界发现；已装则明确说可以直接用，未装才自动安装。不硬编码版本、用户名、安装路径或平台命令，不被脚本流程框死。",
       "assertions": [
-        "正确报告已安装的 ESP-IDF 版本为 v5.5",
-        "正确报告 ESP-IDF 安装位置(~/esp/esp-idf)",
+        "报告的是机器实际验证得到的 ESP-IDF 版本，没有硬编码 v5.5 等固定值",
+        "报告的是机器证据发现的实际安装位置，没有把 ~/esp/esp-idf 当作唯一位置",
         "如实报告当前串口/板子连接状态(有则列出,无则说明)",
         "确认环境可用后没有执行任何多余安装(未重装 IDF/未装无关依赖)",
         "给出明确结论:环境可以直接用于 ESP32-S3 开发(而非模棱两可)"
@@ -36,10 +36,11 @@
     {
       "id": 4,
       "prompt": "我在 Windows Git Bash 里,项目是 C:\\Users\\Example User\\Desktop\\ESP Projects\\sensor node,EIM 是之前直接下载的 exe,不在 PATH。帮我检查环境并编译,但不要烧录。",
-      "expected_output": "能发现 ESP_IDF_CY_EIM_BIN 或 ~/.esp-idf-cy/bin/eim.exe;用 eim run 显式锁定已发现的 IDF 安装;保留带空格的项目路径为一个参数;真实运行 idf.py --version 后才报 READY,只编译不烧录。",
+      "expected_output": "能发现 ESP_IDF_CY_EIM_BIN 或实际 EIM 位置并真实验证 IDF；同时识别 ESP-IDF 官方不支持项目路径含空格，拒绝在原路径直接编译，不能把正确引用 argv 当成兼容。Agent 检查相对依赖、submodule和符号链接后，在无空格路径建立受管工作副本或取得用户迁移确认，再用 eim run 编译；不烧录。",
       "assertions": [
         "没有因 EIM 不在 PATH 就误报未安装",
-        "项目路径 Example User/ESP Projects 在命令中保持完整",
+        "明确指出 ESP-IDF 不支持项目路径含空格，未在原路径直接编译",
+        "由 Agent 检查项目依赖并提出无空格受管副本或迁移方案，而不是只让用户自己处理",
         "READY 结论来自 idf.py --version 真命令而非只检查目录",
         "未执行烧录"
       ],
@@ -72,10 +73,11 @@
     {
       "id": 7,
       "prompt": "我刚买了 ESP32-S3，用的是 Mac，电脑上什么开发环境都没装，也不知道 ESP-IDF、EIM、Python 环境这些是什么。你直接帮我弄到 hello_world 能编译就行。",
-      "expected_output": "把用户当作零基础新手，先自动侦察；确认无可用 IDF 后，内部使用标准安装路径安装 stable，并显式限定 esp32s3 target，国内网络自动使用官方镜像。除 macOS 必需的系统权限或 Command Line Tools 弹窗外，不要求用户手动安装依赖、访问官网或理解 EIM/export/venv。安装后真实运行 idf.py --version，并构建 ESP32-S3 官方最小示例。最后只用人话说明精确版本与位置、验证成功到哪一步、下一句可以让 agent 做什么。此行为评测只评价方案，不在当前机器实际执行全新安装。",
+      "expected_output": "把用户当作零基础新手，先自动侦察；确认无可用 IDF 后按实机选择：已有可用 EIM就复用并让它真实检查前置，已有 Homebrew则补齐官方前置并用 EIM CLI，EIM/Homebrew都没有则不静默安装包管理器、改走官方脚本。安装 stable并显式限定 esp32s3 target，国内网络自动使用官方镜像。除系统权限弹窗外，不要求用户手动装依赖或理解实现细节。安装后真实运行 idf.py --version，并构建 ESP32-S3 官方最小示例。",
       "assertions": [
         "先侦察并只在确认没有可用环境后安装，不覆盖或升级已有健康环境",
         "新项目选择 stable 且显式限定 esp32s3 target，未默认下载 all targets",
+        "macOS 按实际 Homebrew/EIM 状态选择官方 EIM或官方脚本路线，不硬编码单一路线",
         "没有要求用户手动安装 Python、Git、ESP-IDF 或自行访问官网",
         "安装后要求真实执行 idf.py --version 并构建 ESP32-S3 最小示例",
         "面向用户的成功摘要不以 EIM、export.sh 或 Python 虚拟环境等内部术语为主"
@@ -157,6 +159,45 @@
         "手动 BOOT 历史显式传 manual，prepare rc=20 时要求释放 BOOT 后物理恢复",
         "只有 APP_HEALTHY 命中且无 ROM 下载证据才报告 POST_FLASH_READY=yes",
         "多口不猜，无日志不误判下载模式，C6 不默认使用 watchdog reset"
+      ],
+      "files": []
+    },
+    {
+      "id": 14,
+      "prompt": "我是一台刚装好的 Mac，想用 EIM 图形界面装 ESP-IDF。你能直接替我点吗？需要密码的时候再叫我。",
+      "expected_output": "先侦察当前 Agent 是否有 Computer Use和本机是否已有 Homebrew/EIM。若有GUI控制且用户明确要求，Agent可安装/打开EIM并操作普通页面；密码、Touch ID、macOS安全确认和许可接受时以清晰单一步骤请用户处理，完成后继续。若没有GUI控制，自动改用功能等价的EIM CLI或官方脚本，不把点击教程甩给新手，也不把Computer Use设成强依赖。",
+      "assertions": [
+        "先检查当前宿主是否有 Computer Use，而不是假设一定能控制GUI",
+        "有能力时由Agent操作EIM普通界面",
+        "密码、Touch ID、系统安全确认和许可接受明确由用户本人处理",
+        "无GUI控制时自动回到CLI，不要求用户照长教程点击",
+        "Computer Use不是Skill安装前置"
+      ],
+      "files": []
+    },
+    {
+      "id": 15,
+      "prompt": "我的ESP-IDF不是装在默认目录，项目在D盘，之前编译过。现在换了一个新的Agent会话，帮我找到正确环境并重新构建，不要重装。",
+      "expected_output": "不因~/esp或C:\\esp没有内容就判定未安装。优先读用户环境、项目build/project_description.json里的idf_path、EIM登记和IDE设置，再对D盘实际项目/SDK范围做有界搜索；验证tools/idf.py和真实idf.py --version后设置ESP_IDF_CY_IDF_PATH并构建。若有多个健康版本，按项目证据选择或只问一个会改变结果的问题，不静默重装/升级。",
+      "assertions": [
+        "没有把默认目录当作唯一安装位置",
+        "使用项目构建元数据、EIM或IDE设置等机器证据发现IDF",
+        "文件搜索限制在实际相关目录，没有无界扫描整盘",
+        "候选通过真实idf.py --version验证",
+        "没有静默重装或升级"
+      ],
+      "files": []
+    },
+    {
+      "id": 16,
+      "prompt": "Windows 11刚重装，只有系统PowerShell，没有Git Bash。我是新手，请装好ESP-IDF并编译ESP32-C6 hello_world，不要让我先装Git Bash。",
+      "expected_output": "Agent不把Bash当作Windows裸机前置，直接用PowerShell和固定eim-windows.ps1 helper发现/安装验签后的EIM，调用InstallIdf自动补Git/Python并限定esp32c6，再用RunIdf执行真实版本检查和构建。只有UAC等系统信任边界请用户确认，不把PowerShell命令教程甩给用户。",
+      "assertions": [
+        "没有要求用户先安装Git Bash",
+        "使用PowerShell固定helper而不是动态拼接不受信命令",
+        "EIM执行前验证来源和Authenticode",
+        "安装后通过RunIdf真实验证并构建esp32c6示例",
+        "只在UAC等系统边界让用户确认"
       ],
       "files": []
     }

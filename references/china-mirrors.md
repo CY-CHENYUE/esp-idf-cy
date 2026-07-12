@@ -3,7 +3,19 @@
 > 判定:doctor.sh / install.sh 里 `NET=cn`(GitHub 探测失败但国内可达)时自动启用。
 > 全部是乐鑫**官方**方案,不需要 VPN。
 
-## macOS / Linux(官方 install.sh 路线,本 Skill 默认自动做)
+## macOS 有可用 EIM/Homebrew(EIM路线,Skill 自动传参)
+
+```bash
+eim --do-not-track true install -i <IDF_TAG> -t <芯片目标> --cleanup true \
+  --mirror      https://dl.espressif.cn/github_assets \
+  --idf-mirror  https://git.espressif.com.cn \
+  --pypi-mirror https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+macOS 不传 Windows 专属 `-a true`;有 Homebrew 时由 `install-eim-macos.sh` 补齐前置;只有现成
+EIM 时由 EIM 真实检查,失败后 Agent 根据缺项换路,不假定依赖已经存在。
+
+## macOS 无 EIM/Homebrew / Linux(官方 install.sh 路线)
 
 ### 1. Git 仓库 → jihulab 官方镜像
 
