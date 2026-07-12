@@ -6,8 +6,8 @@
 #   --targets  芯片目标,默认 all;已知板子时应显式传 esp32s3/esp32c6 等以减少下载
 #   --path     IDF 仓库位置,默认 <用户主目录>/esp/esp-idf(官方惯例);Windows 走 EIM 时由 EIM 管理
 #
-# 路线:macOS = bootstrap(CLTools + Python)后走官方 legacy 流程,国内网络自动启用官方镜像;
-#       Linux = 官方 legacy 流程;Windows = 官方 EIM CLI,前置依赖 -a true 全自动。
+# 路线:macOS = bootstrap(CLTools + Python)后走官方 install.sh 流程,国内网络自动启用官方镜像;
+#       Linux = 官方 install.sh 流程;Windows = 官方 EIM CLI,前置依赖 -a true 全自动。
 # 注意:全程下载量以 GB 计,agent 调用时应放宽超时或后台运行。
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -186,7 +186,7 @@ install_windows() {
   }
 }
 
-# ================= macOS / Linux:legacy 路线 =================
+# ================= macOS / Linux:官方 install.sh 路线 =================
 install_posix() {
   # macOS 前置已由 bootstrap-macos.sh 处理;Linux 仍只做系统依赖检查。
   if ! have git; then

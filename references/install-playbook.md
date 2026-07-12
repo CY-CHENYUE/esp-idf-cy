@@ -4,7 +4,7 @@
 > 下面用 `<IDF_TAG>` 表示已确定的精确 tag(如 v5.5.4 或 v6.0.2)。
 > 项目有指定就跟项目;新项目查官方 stable;注意 v5.5≥3.9,v6.0≥3.10。
 
-## macOS / Linux(官方 legacy 流程)
+## macOS / Linux(空白机默认的官方脚本流程)
 
 ### 1. 前置
 
@@ -19,7 +19,8 @@ bash <skill>/scripts/bootstrap-macos.sh --min-python <最低版本>  # v5.5=3.9,
 - 没有 Homebrew:下载 Python.org 官方 universal2 pkg,同时校验固定 SHA256 和
   `Python Software Foundation` 安装签名后才 `open`;用户完成系统安装器后重跑。
 - 不自动安装 Homebrew。它会写系统目录并引入新的长期包管理器,超出“补齐 IDF 必需依赖”的最小范围。
-- EIM 的 `-a true` 只在 Windows 自动补 Python/Git;macOS 换用 EIM 也绕不过前置依赖。
+- macOS 能用 EIM,官方推荐 Homebrew 安装;但 POSIX 只做前置检查,缺依赖时不会像 Windows
+  的 `-a true` 那样代装。空白 Mac 因此默认走本节,已有健康 EIM 则由 `idf-env.sh` 原生复用。
 
 Linux 系统依赖(cmake/ninja 不用装,IDF 会装自己管理的版本到 ~/.espressif):
 
@@ -63,6 +64,18 @@ export PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
 ```bash
 source ~/esp/esp-idf/export.sh && idf.py --version    # 应输出选定的精确 tag
 ```
+
+### 已有 EIM 的 macOS
+
+```bash
+brew tap espressif/eim
+brew install eim                  # 或 brew install --cask eim-gui
+eim --do-not-track true list
+eim --do-not-track true run "idf.py --version" <IDF路径>
+```
+
+EIM 本体支持 macOS x64/arm64,但开始安装 IDF 前仍需满足官方列出的 POSIX 前置依赖。
+Agent 实际执行统一走 `idf-env.sh`,避免依赖用户手工激活 shell。
 
 ## Windows(官方 EIM CLI 流程;在 Git Bash 里编排,原生命令清 MSYSTEM)
 

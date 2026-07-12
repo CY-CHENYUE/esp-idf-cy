@@ -83,7 +83,10 @@ ln -s /你的绝对路径/esp-idf-cy ~/.claude/skills/esp-idf-cy
 5. 烧录后先在最终恢复前重验 MAC；手动下载模式会引导用户释放 BOOT 后按 RESET/重新上电，
    最终恢复后不再用 esptool 扰动板子，只靠应用专用健康日志完成验证。
 
-macOS 主要使用 ESP-IDF 官方脚本和系统工具，不需要 EIM。Windows 优先把 EIM 作为内部安装和免激活执行通道；缺少 Python、Git 或工具链时，技能会在安全校验和系统权限允许的范围内自动补齐。macOS 的 Command Line Tools 或 Python 官方安装包可能需要用户确认系统窗口。
+macOS 可以使用 EIM，乐鑫当前也推荐通过 Homebrew 安装；它不是 Windows 专属工具。这个 Skill
+不会把 EIM 设为空白 Mac 的强制前置：EIM 在 macOS 上会检查依赖，却不像 Windows 那样自动安装
+所有缺失前置。技能默认先补齐 Command Line Tools/Python，并走依赖更少的官方脚本路线；若发现
+已有且健康的 EIM 安装，则会直接复用。Windows 仍优先把 EIM 作为安装和免激活执行通道。
 
 ## 文件结构
 
@@ -91,7 +94,7 @@ macOS 主要使用 ESP-IDF 官方脚本和系统工具，不需要 EIM。Windows
 esp-idf-cy/
 ├── SKILL.md                    # Agent 入口、流程与安全规约
 ├── README.md                   # 用户安装和使用说明
-├── LICENSE                     # Apache-2.0
+├── LICENSE                     # GNU GPL v3.0 only
 ├── assets/
 │   └── wechat-qr.jpg
 ├── scripts/                    # 侦察、安装、环境、端口、验身与串口工具
@@ -135,11 +138,27 @@ watchdog reset。
 
 ### Mac 需要安装 EIM 吗？
 
-不需要。macOS 走 ESP-IDF 官方脚本和本机 Python 环境；EIM 主要用于 Windows。
+不是必须，但完全可以用。乐鑫官方支持 Intel 与 Apple Silicon，并推荐用 Homebrew 安装 EIM：
+
+```bash
+brew tap espressif/eim
+brew install eim                  # CLI
+# 或 brew install --cask eim-gui  # 图形界面
+```
+
+对自己手动配置的新手，EIM GUI 是很友好的入口；对由本 Skill 接管的空白 Mac，默认先走最小
+bootstrap + ESP-IDF 官方脚本，避免为了安装器本身额外引入 Homebrew 和一组 POSIX 前置库。
+已经由 EIM 管理的 ESP-IDF 会被自动发现，并通过原生 `eim run` 使用。
+
+参考：[乐鑫 EIM 平台与安装说明](https://docs.espressif.com/projects/idf-im-ui/en/latest/index.html)、
+[macOS/POSIX 前置依赖说明](https://docs.espressif.com/projects/idf-im-ui/en/latest/prerequisites.html)。
 
 ### 空白电脑上的依赖会自动安装吗？
 
-会尽量自动处理 ESP-IDF 所需的 Python、Git、工具链和 EIM。系统权限、UAC、macOS Command Line Tools 或官方安装包窗口仍需要用户本人确认。技能无法在自身宿主 Agent 尚不能执行 Shell 或 PowerShell 时先安装宿主环境。
+会尽量自动处理。Windows EIM 可以自动补 Python/Git 等前置；macOS 上 Skill 可触发 Command Line
+Tools 安装，并复用 Homebrew 安装兼容 Python，或下载并验签 Python.org 官方安装包。苹果系统窗口、
+管理员授权等边界仍需用户本人确认。macOS EIM 本身只会检查 POSIX 前置依赖，缺失时不会全部代装；
+因此 Skill 不会把“EIM 已安装”等同于“空白 Mac 已准备完成”。
 
 ### 会自动升级已有 ESP-IDF 吗？
 
@@ -162,7 +181,7 @@ Agent 会话通常没有交互式 TTY。技能附带有界的 pyserial 采集器
 
 ## 验证边界
 
-仓库中的自动测试覆盖脚本参数、安装门禁、环境边界、Windows EIM 静态约束、串口控制线极性和
+仓库中的自动测试覆盖脚本参数、安装门禁、环境边界、macOS EIM 原生执行、Windows EIM 静态约束、串口控制线极性和
 烧录后状态机。macOS / Windows 空白机安装、不同网络环境、USB 驱动以及各型号实机烧录仍受
 外部系统和硬件影响；软件回归通过不等于所有平台与开发板组合都已完成实机验收。烧录和硬件验证
 应在目标设备上执行，重点覆盖 S3/C3/C6 原生 USB 与 CP210x/CH340 桥接串口。
@@ -184,7 +203,7 @@ Agent 会话通常没有交互式 TTY。技能附带有界的 pyserial 采集器
 
 ## 许可
 
-本项目使用 [Apache License 2.0](LICENSE)。
+本项目使用 [GNU General Public License v3.0 only](LICENSE)。
 
 ## 交流
 

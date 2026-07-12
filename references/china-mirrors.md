@@ -3,7 +3,7 @@
 > 判定:doctor.sh / install.sh 里 `NET=cn`(GitHub 探测失败但国内可达)时自动启用。
 > 全部是乐鑫**官方**方案,不需要 VPN。
 
-## macOS / Linux(legacy 路线,install.sh 自动做)
+## macOS / Linux(官方 install.sh 路线,本 Skill 默认自动做)
 
 ### 1. Git 仓库 → jihulab 官方镜像
 

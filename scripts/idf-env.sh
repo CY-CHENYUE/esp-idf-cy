@@ -41,8 +41,8 @@ fi
 EIM_BIN="$(find_eim || true)"
 if [ "$IDF_KIND" = eim ] && [ -n "$EIM_BIN" ]; then
   # EIM 管理的安装:eim run 自己负责装配环境,无需激活,天然绕开
-  # Windows 上 export.bat/执行策略/MSYS 三个坑。显式传 IDF 路径,
-  # 不依赖 EIM 的 selected 项;每个 argv 单独引用,空格路径不丢边界。
+  # export 脚本和当前 shell 生命周期。显式传 IDF 路径,不依赖 EIM 的
+  # selected 项;每个 argv 单独引用,空格路径不丢边界。
   if [ "$OS" = windows ]; then
     # Git Bash 的 /c/... 路径不能直接交给 Windows Python。
     # 转换明确的项目路径参数和已存在的 MSYS 绝对路径。
@@ -63,13 +63,18 @@ if [ "$IDF_KIND" = eim ] && [ -n "$EIM_BIN" ]; then
     set -- "${NORMALIZED[@]}"
   fi
   CMD_STRING="$(eim_command_string "$@")" || exit $?
-  EIM_HELPER="$SCRIPT_DIR/eim-windows.ps1"
-  EIM_HELPER_WIN="$(cygpath -w "$EIM_HELPER" 2>/dev/null || echo "$EIM_HELPER")"
-  EIM_BIN_WIN="$(cygpath -w "$EIM_BIN" 2>/dev/null || echo "$EIM_BIN")"
-  FOUND_IDF_PATH_WIN="$(cygpath -w "$FOUND_IDF_PATH" 2>/dev/null || echo "$FOUND_IDF_PATH")"
-  ps_file "$EIM_HELPER_WIN" RunIdf -EimPath "$EIM_BIN_WIN" \
-    -CommandString "$CMD_STRING" -IdfPath "$FOUND_IDF_PATH_WIN"
-  exit $?
+  if [ "$OS" = windows ]; then
+    # Windows 额外经过固定 PowerShell helper 复验 Authenticode,并隔离 MSYS。
+    EIM_HELPER="$SCRIPT_DIR/eim-windows.ps1"
+    EIM_HELPER_WIN="$(cygpath -w "$EIM_HELPER" 2>/dev/null || echo "$EIM_HELPER")"
+    EIM_BIN_WIN="$(cygpath -w "$EIM_BIN" 2>/dev/null || echo "$EIM_BIN")"
+    FOUND_IDF_PATH_WIN="$(cygpath -w "$FOUND_IDF_PATH" 2>/dev/null || echo "$FOUND_IDF_PATH")"
+    ps_file "$EIM_HELPER_WIN" RunIdf -EimPath "$EIM_BIN_WIN" \
+      -CommandString "$CMD_STRING" -IdfPath "$FOUND_IDF_PATH_WIN"
+    exit $?
+  fi
+  # macOS/Linux 的 EIM 是原生可执行文件,不需要也不能调用 Windows helper。
+  exec "$EIM_BIN" --do-not-track true run "$CMD_STRING" "$FOUND_IDF_PATH"
 fi
 
 case "$OS" in

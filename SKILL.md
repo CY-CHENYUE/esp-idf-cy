@@ -1,7 +1,7 @@
 ---
 name: esp-idf-cy
 description: 面向第一次接触 ESP-IDF 的新手及已有工程用户的一站式 skill——用户只需说板子/芯片和想做什么,skill 自动检测或安装 macOS/Windows 开发环境(国内网络走乐鑫官方镜像),并完成编译、烧录、串口验证和排错;EIM、Python、工具链与环境激活默认由 skill 内部处理。支持 ESP32 全系芯片(ESP32/S2/S3/C3/C6 等)。当用户提到 "ESP-IDF"、"idf.py"、"ESP32 编译"、"烧录固件"、"flash 到板子"、"串口 monitor/日志"、"装 ESP-IDF"、"IDF 环境配置"、"menuconfig"、"sdkconfig"、"hello_world 跑不起来"、"找不到串口/COM口"、"esptool" 时必须触发;即使用户只说"我刚买了 ESP32-S3,电脑什么都没装,帮我开始"、"帮我把这个 ESP32 项目编译烧录一下"、"看看板子输出了什么",也应触发。不做:Arduino-ESP32 / PlatformIO 工作流,具体外设驱动业务代码的编写。
-license: Apache-2.0
+license: GPL-3.0-only
 allowed-tools: Bash, Read, Edit, Write
 ---
 
@@ -76,10 +76,12 @@ Windows 需要 Agent 宿主提供 Git Bash，或由 Agent 直接用系统 PowerS
 
 ### 环境装配:每条 idf 命令的写法
 
-- **mac / linux**(同一条 Bash 里串起来):
+- **mac / linux legacy 安装**(同一条 Bash 里串起来):
   ```bash
   source <IDF_PATH>/export.sh >/dev/null 2>&1 && idf.py -C <项目目录> build
   ```
+- **mac / linux EIM 管理的安装**:直接用下面的 `idf-env.sh`;wrapper 会通过原生
+  `eim --do-not-track true run` 运行,不会调用 Windows PowerShell helper。
 - **Windows(你跑在 Git Bash 里)**:
   ```bash
   bash <skill>/scripts/idf-env.sh idf.py -C <项目目录> build
@@ -104,7 +106,9 @@ Windows 需要 Agent 宿主提供 Git Bash，或由 Agent 直接用系统 PowerS
   Python.org 下载固定版本的 universal2 官方包,同时校验 SHA256 和 Python Software Foundation
   签名后才打开系统安装器。系统 UI 必须由用户本人确认;脚本返回 `ACTION_REQUIRED`/rc=20 时
   不是安装失败,等用户完成后重跑原命令即可续上。不要静默安装 Homebrew,也不要用 `curl|sh`
-  引入第三方 Python。EIM 的自动前置参数只支持 Windows,不能拿它替代这层 bootstrap。
+  引入第三方 Python。macOS 可以使用 EIM,而且乐鑫推荐通过 Homebrew 安装;但 EIM 在 POSIX
+  只检查前置依赖,缺失时不会像 Windows 那样自动补齐。因此空白 Mac 默认仍用这条依赖更少、
+  可恢复的官方脚本路线;发现已有且健康的 EIM 安装则直接复用,不要误判成仅 Windows 可用。
 - **脚本失败或不适用**(特殊版本/公司代理/非常规位置):别无脑重跑。读它的输出定位卡点,
   按 `references/install-playbook.md` 的配方自己一步步来——每一步都能单独重试和替换。
 - 版本选择:先看项目 README/CI/容器配置;已有项目跟它的精确版本。新项目默认
@@ -214,9 +218,9 @@ bash <skill>/scripts/monitor.sh -p <口> -C <proj> -t 50 -R -e '<能证明正常
 | 脚本 | 值得用的时候 | 别依赖它的时候 |
 |---|---|---|
 | `scripts/doctor.sh` | 开场一次拿全景,省多轮探测 | 输出和你实际观察冲突时,以实际为准 |
-| `scripts/install.sh` | 标准安装(mac bootstrap+legacy / win EIM + 镜像) | 非标场景 → install-playbook 手动配方 |
+| `scripts/install.sh` | 标准安装(mac 最小 bootstrap+官方脚本 / win EIM + 镜像) | 非标场景 → install-playbook 手动配方 |
 | `scripts/bootstrap-macos.sh` | Mac 缺 CLT/Python 时自动补到系统 UI 边界 | 非 macOS;系统安装窗口仍需用户本人确认 |
-| `scripts/idf-env.sh` | 不想手拼 source && ... | 需要特殊环境变量/调试 export 过程时手写 |
+| `scripts/idf-env.sh` | legacy 与 macOS/Windows EIM 安装的统一免激活入口 | 需要特殊环境变量/调试 export 过程时手写 |
 | `scripts/find-port.sh` | 快速扫口;单口给候选,多口报需选择 | 它不代替芯片+MAC 验身 |
 | `scripts/identify-device.sh` | 烧前及重枚举后读芯片+MAC | 读不出就停,不用端口名替代身份 |
 | `scripts/wait-port.sh` | 提示用户操作后等候选端口 | 多口不自动选;返回后必须重验 MAC |

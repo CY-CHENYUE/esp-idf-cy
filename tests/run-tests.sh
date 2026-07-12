@@ -12,6 +12,13 @@ for script in "$ROOT"/scripts/*.sh; do
 done
 pass bash-syntax
 
+# 发布协议的三个真相源必须一致,避免镜像仓库再次显示旧协议。
+grep -Fqx 'license: GPL-3.0-only' "$ROOT/SKILL.md" || fail license-frontmatter
+grep -Fq 'GNU GENERAL PUBLIC LICENSE' "$ROOT/LICENSE" || fail license-file-name
+grep -Fq 'Version 3, 29 June 2007' "$ROOT/LICENSE" || fail license-file-version
+grep -Fq 'GNU General Public License v3.0 only' "$ROOT/README.md" || fail license-readme
+pass license-consistency
+
 bash "$ROOT/tests/test_eim_windows_static.sh" || fail eim-windows-static
 bash "$ROOT/tests/test_network_probe.sh" || fail network-probe
 bash "$ROOT/tests/test_install_readiness.sh" || fail install-readiness
@@ -212,6 +219,17 @@ printf '%s\n' "$OUT" | grep -Fqx 'ARG=<RunIdf>' || fail eim-wrapper-run
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<"idf.py" "-C" "C:\Users\A B\project" "build">' || fail eim-wrapper-command
 printf '%s\n' "$OUT" | grep -Fqx "ARG=<$TMP/eim-idf>" || fail eim-wrapper-idf
 pass eim-wrapper
+
+# 模拟 macOS+EIM wrapper:POSIX 必须直接调用原生 EIM,不能落入 Windows PowerShell helper。
+OUT="$(ESP_IDF_CY_OS=mac ESP_IDF_CY_EIM_BIN="$TMP/mock-eim" \
+  ESP_IDF_CY_EIM_JSON="$TMP/eim_idf.json" \
+  bash "$ROOT/scripts/idf-env.sh" idf.py -C "$TMP/project with spaces" build)" || fail mac-eim-wrapper
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<--do-not-track>' || fail mac-eim-wrapper-privacy-flag
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<true>' || fail mac-eim-wrapper-privacy-value
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<run>' || fail mac-eim-wrapper-run
+printf '%s\n' "$OUT" | grep -Fqx "ARG=<\"idf.py\" \"-C\" \"$TMP/project with spaces\" \"build\">" || fail mac-eim-wrapper-command
+printf '%s\n' "$OUT" | grep -Fqx "ARG=<$TMP/eim-idf>" || fail mac-eim-wrapper-idf
+pass mac-eim-wrapper
 
 # 多版本 EIM:显式选非 selected 路径后仍必须走 RunIdf，并把所选路径传给 helper。
 mkdir -p "$TMP/eim-idf-alt/tools"

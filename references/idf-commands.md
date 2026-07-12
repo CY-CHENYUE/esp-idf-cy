@@ -48,17 +48,19 @@ esptool.py --chip esp32s3 merge_bin -o merged.bin --flash_size 8MB \
 
 idf.py 项目的三段偏移看 `build/flash_args` 文件,别背数字(S3 bootloader 在 0x0,ESP32 在 0x1000)。
 
-## eim(Windows 主路线;macOS 也可用)
+## eim(Windows 安装主路线;macOS 官方支持且可复用)
 
 ```bash
 eim --do-not-track true list                         # 已装 IDF 版本
 eim --do-not-track true select <IDF_TAG>             # 切默认版本
-eim --do-not-track true install -i <IDF_TAG> -t esp32s3 -a true
+eim --do-not-track true install -i <IDF_TAG> -t esp32s3          # macOS/POSIX 前置需先满足
+eim --do-not-track true install -i <IDF_TAG> -t esp32s3 -a true  # -a 自动补前置仅 Windows
 eim --do-not-track true run "idf.py build" <IDF路径> # 免激活,显式锁定安装
 ```
 
-Agent 默认用 `idf-env.sh`，它会在 Windows 复验 EIM Authenticode、关闭 telemetry、以 argv
-保留空格路径并透传退出码；不要直接拼接 PowerShell 命令字符串。
+macOS 官方推荐 `brew tap espressif/eim && brew install eim`(GUI 可用 `--cask eim-gui`)。
+Agent 默认用 `idf-env.sh`：macOS/Linux 直接调用原生 EIM；Windows 额外复验 EIM Authenticode；
+两边都关闭 telemetry、保留空格路径并透传退出码。
 
 ## 常用 sdkconfig 项(写进 <proj>/sdkconfig.defaults,再 set-target 重生成)
 
