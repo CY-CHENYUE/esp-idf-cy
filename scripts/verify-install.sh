@@ -53,7 +53,10 @@ done
 }
 
 if [ "$EXPECTED_PATH_SET" = yes ]; then
-  DOCTOR_OUT="$(ESP_IDF_CY_IDF_PATH="$EXPECTED_PATH" \
+  # 精确复检不能继承调用者的旧 IDF_PATH 或项目元数据。专用覆盖仍是唯一
+  # 选择依据,这样 EIM 刚安装/修复的路径不会被同版本旧环境冒充。
+  DOCTOR_OUT="$(env -u IDF_PATH -u ESP_IDF_CY_PROJECT_DIR \
+    ESP_IDF_CY_IDF_PATH="$EXPECTED_PATH" \
     bash "$SCRIPT_DIR/doctor.sh" --no-net 2>&1)"
   DOCTOR_RC=$?
 else

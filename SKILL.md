@@ -2,7 +2,7 @@
 name: esp-idf-cy
 description: 面向第一次接触 ESP-IDF 的新手及已有工程用户的一站式 skill——用户只需说板子/芯片和想做什么,skill 自动检测或安装 macOS/Windows 开发环境(国内网络走乐鑫官方镜像),并完成编译、烧录、串口验证和排错;EIM、Python、工具链与环境激活默认由 skill 内部处理。支持 ESP32 全系芯片(ESP32/S2/S3/C3/C6 等)。当用户提到 "ESP-IDF"、"idf.py"、"ESP32 编译"、"烧录固件"、"flash 到板子"、"串口 monitor/日志"、"装 ESP-IDF"、"IDF 环境配置"、"menuconfig"、"sdkconfig"、"hello_world 跑不起来"、"找不到串口/COM口"、"esptool" 时必须触发;即使用户只说"我刚买了 ESP32-S3,电脑什么都没装,帮我开始"、"帮我把这个 ESP32 项目编译烧录一下"、"看看板子输出了什么",也应触发。不做:Arduino-ESP32 / PlatformIO 工作流,具体外设驱动业务代码的编写。
 license: GPL-3.0-only
-compatibility: 需要可执行本机命令；macOS/Linux 使用 Bash，Windows 使用 PowerShell 或 Git Bash。Computer Use 仅作可选 GUI 增强，不是安装前置。
+compatibility: 需要可执行本机命令；macOS/Linux 使用 Bash，Windows 使用 PowerShell 或 Git Bash。官方 EIM 当前原生支持 Windows x64，其他 Windows 架构必须先探测再决定路线。Computer Use 仅作可选 GUI 增强，不是安装前置。
 ---
 
 # esp-idf-cy — ESP-IDF 编译/构建/烧录(agent 能力为主,脚本为辅)
@@ -53,6 +53,24 @@ Windows 需要 Agent 宿主提供 Git Bash，或由 Agent 直接用系统 PowerS
 - `ACTION_REQUIRED`/rc=20 表示可恢复的人机交接:说明用户只需完成哪个系统动作,完成后由 Agent
   重跑原命令并续上。不要让用户重新理解整套安装流程。
 
+三层职责不要混淆:
+
+- **你(Agent)**负责侦察证据、选择路线、解释异常、向用户取得烧录确认并持续推进。
+- **`SKILL.md`**只给决策顺序、安全红线、完成标准和按需读取 reference 的路由。
+- **`references/`**保存会随 ESP-IDF/EIM/平台变化的命令与排错知识;执行前以实机和当前官方能力复核。
+- **`scripts/`**提供确定性探针、可重入默认安装动作，以及验签、argv传递、身份解析、精确验证、
+  超时等机械边界。它们可以执行你已选定的路线，但不是决策者或用户授权门禁；输出与实机冲突时
+  继续调查，不能盲信或无脑重跑。
+
+按任务渐进读取,不要一次把全部知识塞进上下文:
+
+| 当前阶段 | 先读 |
+|---|---|
+| 安装、修复、EIM、PowerShell-only | `references/install-playbook.md` |
+| 国内网络或镜像失败 | `references/china-mirrors.md` |
+| target、idf.py、esptool、EIM 命令 | `references/idf-commands.md` |
+| 已有报错、驱动、BOOT/RESET、串口异常 | `references/troubleshooting.md` |
+
 五条物理事实,决定了下面所有做法:
 
 1. **`export.sh` 只对当前 shell 生效**,而你每次 Bash 调用都是新 shell
@@ -82,13 +100,15 @@ Windows 需要 Agent 宿主提供 Git Bash，或由 Agent 直接用系统 PowerS
   做有界搜索,不要无界扫描整盘。版本用 `git -C <目录> describe --tags` 或真命令拿,别信目录名。
 - **工具链健康度**:`~/.espressif/python_env/idf<IDF版本>_py<py版本>_env`——目录名本身
   编码了它绑定的 python 版本,系统 python 升级过它就失效(经典坑)。
-- **python 闸门**:装/用 v5.5 要 ≥3.9,v6.0 要 ≥3.10。
+- **Python 闸门**:优先读取所选 IDF 自带的版本检查/当前 EIM 前置结果;reference 里的版本表只是
+  已验证快照。遇到未知的新 major 必须查当前证据或 fail closed,不能默认回落到旧 Python 下限。
 - **串口**:mac 看 `/dev/cu.usbmodem*`(乐鑫原生口)和 `/dev/cu.usbserial*`/`SLAB*`/`wch*`(桥接);
   linux 看 `/dev/ttyACM*`/`/dev/ttyUSB*`;Windows 用 PowerShell
   `Get-CimInstance Win32_PnPEntity -Filter "PNPClass='Ports'"`,乐鑫原生口 DeviceID 含
   `VID_303A&PID_1001`。
-- **网络**:GitHub 不畅但国内可达 → 全程走乐鑫官方镜像(`references/china-mirrors.md`),
-  绝不让用户开 VPN。
+- **网络**:GitHub 不畅但国内可达 → IDF仓库、工具资产和pip优先走乐鑫官方机制
+  (`references/china-mirrors.md`)。EIM本体自举是否有国内官方资产要按当期来源另查；不要先把VPN甩给用户，
+  也不要为“能下载”绕过hash/签名。
 - 探到多个 IDF 版本或奇怪位置 → 把候选列给用户选,别猜。
 
 ### 环境装配:每条 idf 命令的写法
@@ -97,8 +117,8 @@ Windows 需要 Agent 宿主提供 Git Bash，或由 Agent 直接用系统 PowerS
   ```bash
   source <IDF_PATH>/export.sh >/dev/null 2>&1 && idf.py -C <项目目录> build
   ```
-- **mac / linux EIM 管理的安装**:直接用下面的 `idf-env.sh`;wrapper 会通过原生
-  `eim --do-not-track true run` 运行,不会调用 Windows PowerShell helper。
+- **mac / linux EIM 管理的安装**:可用 `idf-env.sh`;wrapper 通过固定 argv relay 进入原生
+  `eim --do-not-track true run`,不会把项目路径、正则或用户数据直接拼成 shell 命令。
 - **Windows(你跑在 Git Bash 里)**:
   ```bash
   bash <skill>/scripts/idf-env.sh idf.py -C <项目目录> build
@@ -107,17 +127,21 @@ Windows 需要 Agent 宿主提供 Git Bash，或由 Agent 直接用系统 PowerS
   `MSYSTEM=MINGW64` 遗传给一切子进程。wrapper 内部经固定 PowerShell 边界验 EIM 的
   Authenticode 签名,关闭 EIM telemetry 后再 `eim run`;免激活执行是 Windows 首选;
   没有 EIM 的旧式官方安装才考虑 `env -u MSYSTEM cmd.exe //c "call <IDF>\export.bat && ..."`(实验性)。
-- **Windows 没有 Git Bash**:不要先要求新手安装 Bash。用当前 Agent 的 PowerShell 调固定 helper:
-  `eim-windows.ps1 InstallIdf ...` 安装,`eim-windows.ps1 RunIdf ...` 执行;helper 以 argv 调 EIM、
-  验 Authenticode 并透传退出码。具体参数见 `references/install-playbook.md`。
-- 嫌拼写啰嗦可用 `bash <skill>/scripts/idf-env.sh idf.py ...` 等价替代——两种写法效果相同,选顺手的。
+- **Windows 没有 Git Bash**:不要先要求新手安装 Bash。先用固定 `CheckPlatform` 检查原生架构;官方 EIM 当前为
+  Windows x64,不支持的架构不得盲下 x64资产。x64用当前 Agent 的PowerShell调固定 helper:
+  `CheckPlatform`/`DownloadVerified`/`InstallIdf`/`FixIdf`/`RunIdf`;`RunIdf`接收argv而不是任意命令字符串。
+  具体PowerShell原语见 `references/install-playbook.md`。
+- `idf-env.sh` 是可选环境执行原语,不是唯一正确写法。能在同一调用中可靠激活所选 IDF并保持
+  argv边界的原生命令同样可用;不要为了走wrapper而放弃Agent对现场的判断。
 - 项目位置永远来自用户上下文(用户说的路径/当前目录),用 `idf.py -C` 传,不确定就问。
 
-### 安装(侦察确认没装才做)
+### 安装或修复(先判断状态再做)
 
-- 先以 `doctor.sh` 的真实命令结果分流:`READY=yes` 就原样复用现有版本,不安装、不升级;
-  `READY=no` 且确认没有其他可用候选时才进入安装。多版本但都可用时按项目版本选择,
-  不让新手先理解安装器差异。
+- 先以 `doctor.sh` 的真实命令结果和你的现场证据做三态分流:
+  1. `READY=yes`:原样复用,不安装、不升级。
+  2. 已发现精确安装但真命令/工具损坏:EIM管理的优先 `eim fix -p <精确路径>`,legacy才重跑该仓库
+     的官方安装工具;修完仍对同一路径严格复检。
+  3. 确认不存在兼容环境:才新安装。多个候选或证据冲突时继续调查或只问一个会改变结果的问题。
 - 省事路径:`bash <skill>/scripts/install.sh [--version stable|v5.5|v5.5.4] [--targets esp32s3]`
   ——幂等、可安全重跑、国内自动镜像。首次 clone 走同级受管暂存区,完整后才原子落位;
   子模块与工具下载可重复执行。下载量以 GB 计,后台跑或放宽超时。
@@ -136,11 +160,13 @@ Windows 需要 Agent 宿主提供 Git Bash，或由 Agent 直接用系统 PowerS
   按 `references/install-playbook.md` 的配方自己一步步来——每一步都能单独重试和替换。
 - 版本选择:先看项目 README/CI/容器配置;已有项目跟它的精确版本。新项目默认
   `stable`;`--version v5.5` 表示“5.5 系列最新 patch”,要复现才传 `v5.5.4` 这类精确 tag。
-- `--targets` 从板子/项目推导并显式传入(C6→`esp32c6`);真不知道才用 `all`。
+- `--targets` 从板子/项目推导并显式传入(C6→`esp32c6`);候选必须以所选 IDF 的
+  `idf.py --list-targets`/当前官方元数据验证,reference中的有限列表不是完整真相;真不知道才用 `all`。
 - Windows 优先用 `winget` 精确包/官方源/用户 scope 安装 EIM;fallback 动态读官方 GitHub release,
   必须同时通过 release asset SHA256 与 Espressif Authenticode 签名才落盘和执行。EIM 的安装/运行
   都默认 `--do-not-track true`;不要直接执行未验签的下载 exe。
-- 装完必须经过严格门禁:真实运行 `idf.py --version`,`READY=yes`,仓库元数据版本与
+- 装完或修复后必须经过严格门禁:先从EIM登记/安装输出锁定**本次实际路径**,清除ambient
+  `IDF_PATH`干扰,再真实运行 `idf.py --version`并要求`READY=yes`;仓库元数据版本与
   `idf.py --version` 实际报告版本都必须和请求精确一致;
   macOS/Linux 还要与请求安装路径一致。任一不满足都算安装失败,不能因安装器退出 0 就报成功。
   用户的目标是开始开发时,继续做目标芯片的最小示例构建,
@@ -208,8 +234,9 @@ bash <skill>/scripts/post-flash-check.sh verify --session <POST_FLASH_SESSION> \
 - prepare 会把已匹配的 MAC、进入方式和烧录口写入权限受限、限时的 session;verify 必须校验它,
   不能靠调用方自报“已经验过身份”。成功后 session 自动消费。
 - verify 阶段只做 fresh rescan + 串口控制线受控 reset/采集,**零次调用 identify/esptool**。
-  多口时 rc=3 并要求用户
-  选择或暂时拔掉无关设备;macOS 的 `/dev/cu.*`、Windows 的 COM 号都不是永久身份。
+  prepare只证明最终恢复前的MAC匹配。原端口消失后,脚本只能返回恢复后候选;由你结合刷新前后
+  清单、USB topology/serial、用户明确选择等证据传入 `-p`。当前只有一个新口也不等于同一设备;
+  证据不足保持未验证。macOS `/dev/cu.*`、Windows COM号都不是永久身份。
 - 只有应用 `-e` 命中时才输出 `POST_FLASH_READY=yes`/rc=0。`DOWNLOAD_BOOT(...)`、
   `DOWNLOAD(USB/UART0...)`、`waiting for download` 是仍在 ROM 下载模式的强证据,输出 rc=20;
   无日志、端口消失、普通 `ESP-ROM`/`rst:` 文本只是不确定,不能冒充 READY 或下载模式确诊。
@@ -248,7 +275,7 @@ bash <skill>/scripts/monitor.sh -p <口> -C <proj> -t 50 -R -e '<能证明正常
 | `scripts/install.sh` | 动态安装(mac 有 EIM/Homebrew→EIM,否则官方脚本 / win EIM) | 非标场景 → install-playbook 手动配方 |
 | `scripts/install-eim-macos.sh` | 复用 Mac EIM;有 Homebrew 时先补官方前置 | EIM/Homebrew 都没有;不要借此静默安装包管理器 |
 | `scripts/bootstrap-macos.sh` | Mac 缺 CLT/Python 时自动补到系统 UI 边界 | 非 macOS;系统安装窗口仍需用户本人确认 |
-| `scripts/idf-env.sh` | 官方脚本与 macOS/Windows EIM 安装的统一免激活入口 | 需要特殊环境变量/调试 export 过程时手写 |
+| `scripts/idf-env.sh` | 需要统一免激活入口且其现场假设成立时 | 它不是授权门禁;特殊环境/调试export时由Agent原生装配 |
 | `scripts/find-port.sh` | 快速扫口;单口给候选,多口报需选择 | 它不代替芯片+MAC 验身 |
 | `scripts/identify-device.sh` | 烧前及重枚举后读芯片+MAC | 读不出就停,不用端口名替代身份 |
 | `scripts/wait-port.sh` | 提示用户操作后等候选端口 | 多口不自动选;返回后必须重验 MAC |
@@ -259,10 +286,10 @@ bash <skill>/scripts/monitor.sh -p <口> -C <proj> -t 50 -R -e '<能证明正常
 
 ## references(知识库,按需读)
 
-- `references/troubleshooting.md` — 排错剧本:安装/编译/烧录串口/S3 特有坑,报错先查这里
-- `references/install-playbook.md` — 手动安装配方(双平台分步 + 每步的失败处理)
-- `references/idf-commands.md` — idf.py/esptool/eim 速查、esptool 版本差异、常用 sdkconfig 项
-- `references/china-mirrors.md` — 国内镜像机制底账(排查镜像问题时看)
+- `references/install-playbook.md` — 按平台安装/修复、PowerShell-only原语和每步失败处理
+- `references/idf-commands.md` — 当前命令速查、动态target发现、破坏性操作前置和版本差异
+- `references/china-mirrors.md` — 国内镜像机制底账(只有网络/镜像问题时读)
+- `references/troubleshooting.md` — 已知报错、驱动、BOOT/RESET和串口排错剧本
 
 ## 反模式
 
@@ -273,12 +300,14 @@ bash <skill>/scripts/monitor.sh -p <口> -C <proj> -t 50 -R -e '<能证明正常
 - ❌ 用户最终 RESET/上电后再跑 identify/esptool“验身”(它会重新扰动启动状态)
 - ❌ 跨芯片默认使用 watchdog reset;C6/原生 USB 兜底请用户物理 RESET 或重新上电
 - ❌ 不验明设备、未经用户确认就烧录(多设备烧错板子;板上可能是用户其他项目)
+- ❌ 把 `idf-env.sh` 当成烧录授权门禁,或把未确认的 flash/erase/write 命令交给它执行
+- ❌ 把用户/仓库提供的路径、正则或参数直接拼进 `eim run` 命令字符串
 - ❌ 被脚本框死:脚本失败无脑重跑、脚本没覆盖就说做不了(你的能力才是主体)
 - ❌ 假设用户平台、假设项目在固定路径
 - ❌ 只因默认目录没找到就判定“未安装”,或无界扫描整块磁盘
 - ❌ 认为给带空格的 IDF/项目路径加引号就能让 ESP-IDF 支持它
 - ❌ 把 EIM GUI/Computer Use 设成公开 Skill 的强依赖,或代用户处理密码/Touch ID/UAC
-- ❌ 国内装不动让用户开 VPN(官方镜像全覆盖)
+- ❌ 国内装不动就先让用户开 VPN，或为绕过网络问题执行未验签的 EIM
 - ❌ 直接编辑生成的 sdkconfig
 
 ## 环境变量
@@ -287,6 +316,7 @@ bash <skill>/scripts/monitor.sh -p <口> -C <proj> -t 50 -R -e '<能证明正常
 |---|---|---|
 | `ESP_IDF_CY_IDF_PATH` | 显式指定用哪个 IDF(多版本/非常规位置) | 自动探测 |
 | `ESP_IDF_CY_EIM_BIN` | 显式指定 EIM 二进制(直下/非 PATH 安装) | PATH 或 `~/.esp-idf-cy/bin/eim(.exe)` |
+| `ESP_IDF_CY_EIM_JSON` | 显式指定已发现的 `eim_idf.json`;探测、run、fix、install统一使用其目录 | 平台官方默认登记 |
 | `ESP_IDF_CY_EIM_VERSION` | Windows fallback 要求的精确 EIM tag;不设则动态取最新正式版 | 最新正式版 |
 | `ESP_IDF_CY_INSTALL_MODE` | macOS 安装路线:`auto`/`eim`/`official-script`;Agent 按实机覆盖 | `auto` |
 | `ESP_IDF_CY_PROJECT_DIR` | 提供项目上下文,允许从 build 元数据发现非常规 IDF | 从 `idf.py -C`/doctor 参数提取 |

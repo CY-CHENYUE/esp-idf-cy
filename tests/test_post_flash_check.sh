@@ -15,7 +15,9 @@ printf '%s\n' '#!/usr/bin/env bash' \
   'echo CHIP=ESP32-S3; echo "MAC=${FAKE_OBSERVED_MAC:-7C:DF:A1:12:34:56}"' >"$TMP/identify.sh"
 printf '%s\n' '#!/usr/bin/env bash' \
   'printf "WAIT" >>"$FAKE_HELPER_LOG"; for a in "$@"; do printf " <%s>" "$a" >>"$FAKE_HELPER_LOG"; done; echo >>"$FAKE_HELPER_LOG"' \
-  'case "${FAKE_WAIT_MODE:-single}" in single) echo PORT_COUNT=1; echo "CANDIDATE_PORT=${FAKE_PORT:-/dev/ttyNEW}";; multi) echo PORT_COUNT=2; echo AMBIGUOUS=yes; exit 3;; none) echo PORT_COUNT=1;; rc) exit 7;; esac' >"$TMP/wait.sh"
+  'want=""; while [ "$#" -gt 0 ]; do if [ "$1" = -p ]; then want="$2"; shift 2; else shift; fi; done' \
+  'candidate="${FAKE_PORT:-${want:-/dev/ttyFLASH}}"' \
+  'case "${FAKE_WAIT_MODE:-single}" in single) echo PORT_COUNT=1; echo "CANDIDATE_PORT=$candidate";; multi) echo PORT_COUNT=2; echo AMBIGUOUS=yes; exit 3;; none) echo PORT_COUNT=1;; rc) exit 7;; esac' >"$TMP/wait.sh"
 printf '%s\n' '#!/usr/bin/env bash' \
   'printf "MONITOR" >>"$FAKE_HELPER_LOG"; for a in "$@"; do printf " <%s>" "$a" >>"$FAKE_HELPER_LOG"; done; echo >>"$FAKE_HELPER_LOG"' \
   'case "${FAKE_MONITOR_MODE:-match}" in' \
@@ -53,6 +55,9 @@ pass parameters
 rm -f "$LOG"; prepare_session manual 20
 printf '%s\n' "$OUT" | grep -q '^ACTION_REQUIRED=release_boot_then_reset_or_power_cycle$' || fail manual-action
 printf '%s\n' "$OUT" | grep -q '^IDENTITY_REVERIFIED=yes$' || fail manual-identity
+printf '%s\n' "$OUT" | grep -q '^PRE_RESET_IDENTITY=matched$' || fail prepare-pre-reset-identity
+printf '%s\n' "$OUT" | grep -q '^CURRENT_PORT_IDENTITY=matched$' || fail prepare-current-identity
+printf '%s\n' "$OUT" | grep -q '^PORT_SELECTION=original$' || fail prepare-port-selection
 grep -q '^WAIT\|^MONITOR' "$LOG" && fail prepare-called-verify
 pass prepare-manual
 
@@ -80,12 +85,20 @@ prepare_session automatic 0
 sed 's/^PREPARED_AT=.*/PREPARED_AT=1/' "$TMP/sessions/$SESSION" >"$TMP/expired"
 mv "$TMP/expired" "$TMP/sessions/$SESSION"
 expect_rc 64 run_check verify --session "$SESSION" -C "$TMP/project" -e READY
+prepare_session automatic 0
+sed '/^PREPARED_PORT=/d' "$TMP/sessions/$SESSION" >"$TMP/no-prepared-port"
+mv "$TMP/no-prepared-port" "$TMP/sessions/$SESSION"
+expect_rc 64 run_check verify --session "$SESSION" -C "$TMP/project" -e READY
 pass session-gate
 
 : >"$LOG"; prepare_session manual 20; : >"$LOG"
 expect_rc 0 run_check verify --session "$SESSION" -C "$TMP/project" -e READY=1 -t 5
 printf '%s\n' "$OUT" | grep -q '^POST_FLASH_READY=yes$' || fail ready
 printf '%s\n' "$OUT" | grep -q '^ENTRY_MODE=manual$' || fail session-entry
+printf '%s\n' "$OUT" | grep -q '^PRE_RESET_IDENTITY=matched$' || fail verify-pre-reset-identity
+printf '%s\n' "$OUT" | grep -q '^CURRENT_PORT_IDENTITY=unverified$' || fail verify-current-port-identity
+printf '%s\n' "$OUT" | grep -q '^IDENTITY_STATUS=unverified$' || fail verify-compat-identity
+printf '%s\n' "$OUT" | grep -q '^PORT_SELECTION=original$' || fail verify-original-port
 grep -q '^IDENTIFY' "$LOG" && fail verify-called-identify
 grep -q '^MONITOR .*<-R>$' "$LOG" || fail controlled-reset-missing
 [ ! -e "$TMP/sessions/$SESSION" ] || fail successful-session-not-consumed
@@ -94,10 +107,25 @@ pass verify-session-no-identify
 prepare_session automatic 0; : >"$LOG"
 expect_rc 0 run_check verify --session "$SESSION" -C "$TMP/project" -e READY -p COM7 -t 5
 grep -q '^WAIT .*<-p> <COM7>$' "$LOG" || fail explicit-port
+printf '%s\n' "$OUT" | grep -q '^CURRENT_PORT_IDENTITY=unverified$' || fail explicit-current-port-identity
+printf '%s\n' "$OUT" | grep -q '^PORT_SELECTION=agent_explicit$' || fail explicit-port-selection
 pass verify-explicit-port
+
+# A sole changed path is only a recovery candidate. The Agent must select it
+# explicitly before reset/monitor; the first pass must not touch the monitor.
+prepare_session automatic 0; : >"$LOG"
+expect_rc 3 run_check FAKE_PORT=/dev/ttyNEW verify --session "$SESSION" -C "$TMP/project" -e READY -t 5
+printf '%s\n' "$OUT" | grep -q '^POST_FLASH_STATE=port_selection_required$' || fail changed-port-state
+printf '%s\n' "$OUT" | grep -q '^PORT_SELECTION=candidate_required$' || fail changed-port-selection
+printf '%s\n' "$OUT" | grep -q '^PREPARED_PORT=/dev/ttyFLASH$' || fail changed-port-prepared
+printf '%s\n' "$OUT" | grep -q '^CANDIDATE_PORT=/dev/ttyNEW$' || fail changed-port-candidate
+printf '%s\n' "$OUT" | grep -q '^CURRENT_PORT_IDENTITY=unverified$' || fail changed-port-identity
+grep -q '^MONITOR' "$LOG" && fail changed-port-monitored
+pass verify-changed-port-requires-agent
 
 prepare_session automatic 0
 expect_rc 3 run_check FAKE_WAIT_MODE=multi verify --session "$SESSION" -C "$TMP/project" -e READY
+printf '%s\n' "$OUT" | grep -q '^PORT_SELECTION=candidate_required$' || fail multi-port-selection
 prepare_session automatic 0
 expect_rc 2 run_check FAKE_WAIT_MODE=none verify --session "$SESSION" -C "$TMP/project" -e READY
 pass verify-port-errors

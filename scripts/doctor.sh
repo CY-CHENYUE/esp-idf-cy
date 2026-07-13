@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# esp-idf-cy · 环境体检。每次 skill 触发先跑这个(Step 0),输出机器可读的 KEY=VALUE。
+# esp-idf-cy · 可选环境全景探针，输出机器可读的 KEY=VALUE；Agent也可按现场逐项取证。
 # 用法: bash doctor.sh [--no-net] [--project <项目目录>]
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,12 +75,23 @@ if [ "$IDF_FOUND" = yes ]; then
   echo "IDF_VER=$IDF_VER"
   [ -n "$IDF_CANDIDATES" ] && echo "IDF_CANDIDATES=$IDF_CANDIDATES"
   # 宿主 python 版本只是线索;EIM/已安装 IDF 可能使用自己的 python。
-  MIN_PY="$(idf_min_python "$IDF_VER")"
-  if [ -n "$PY_VER" ] && version_ge "$PY_VER" "$MIN_PY"; then
-    echo "HOST_PYTHON_OK=yes"
-  else
-    echo "HOST_PYTHON_OK=no(安装/修复 $IDF_VER 时需要>=$MIN_PY)"
-  fi
+  case "$IDF_VER" in
+    v3.*|v4.*|v5.*|v6.*|3.*|4.*|5.*|6.*)
+      MIN_PY="$(idf_min_python "$IDF_VER")"
+      echo "PYTHON_MIN_REQUIRED=$MIN_PY"
+      if [ -n "$PY_VER" ] && version_ge "$PY_VER" "$MIN_PY"; then
+        echo "HOST_PYTHON_OK=yes"
+      else
+        echo "HOST_PYTHON_OK=no(安装/修复 $IDF_VER 时需要>=$MIN_PY)"
+      fi
+      ;;
+    *)
+      # READY 仍由该安装自己的真 idf.py 命令决定,但未知 major 的安装/修复
+      # 前置不能沿用 lib.sh 的旧版本兜底值并误报 Python 3.8 足够。
+      echo "PYTHON_MIN_REQUIRED=unknown"
+      echo "HOST_PYTHON_OK=unknown(需读取 $FOUND_IDF_PATH 的当前官方约束)"
+      ;;
+  esac
 
   # READY 必须由真命令证明,不能只看 tools/idf.py 文件存在。
   IDF_CHECK_OUT="$(bash "$SCRIPT_DIR/idf-env.sh" idf.py --version 2>&1)"

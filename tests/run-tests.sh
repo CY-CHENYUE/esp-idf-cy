@@ -12,6 +12,16 @@ for script in "$ROOT"/scripts/*.sh; do
 done
 pass bash-syntax
 
+python3 - "$ROOT" <<'PY' || fail python-syntax
+from pathlib import Path
+import sys
+
+for folder in ("scripts", "tests"):
+    for path in (Path(sys.argv[1]) / folder).glob("*.py"):
+        compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY
+pass python-syntax
+
 # 发布协议的三个真相源必须一致,避免镜像仓库再次显示旧协议。
 grep -Fqx 'license: GPL-3.0-only' "$ROOT/SKILL.md" || fail license-frontmatter
 grep -Fq 'GNU GENERAL PUBLIC LICENSE' "$ROOT/LICENSE" || fail license-file-name
@@ -20,8 +30,11 @@ grep -Fq 'GNU General Public License v3.0 only' "$ROOT/README.md" || fail licens
 pass license-consistency
 
 bash "$ROOT/tests/test_eim_windows_static.sh" || fail eim-windows-static
+bash "$ROOT/tests/test_eim_command_boundary.sh" || fail eim-command-boundary
 bash "$ROOT/tests/test_agent_first_contract.sh" || fail agent-first-contract
 bash "$ROOT/tests/test_macos_eim_install.sh" || fail macos-eim-install
+bash "$ROOT/tests/test_install_identity.sh" || fail install-identity
+bash "$ROOT/tests/test_identify_device_versions.sh" || fail identify-device-versions
 bash "$ROOT/tests/test_project_discovery.sh" || fail project-discovery
 bash "$ROOT/tests/test_network_probe.sh" || fail network-probe
 bash "$ROOT/tests/test_install_readiness.sh" || fail install-readiness
@@ -191,13 +204,6 @@ set -e
 [ ! -e "$TMP/open-failing-signature.log" ] || fail mac-python-pkgutil-opened
 pass mac-python-pkgutil-rc
 
-# EIM quoting helper仍要保留通用 argv 边界;实际IDF/项目路径含空白会由wrapper另行拒绝。
-ACTUAL="$(bash -c '. "$1"; shift; eim_command_string "$@"' _ \
-  "$ROOT/scripts/lib.sh" idf.py -C 'C:\Users\A B\project' build)"
-EXPECTED='"idf.py" "-C" "C:\Users\A B\project" "build"'
-[ "$ACTUAL" = "$EXPECTED" ] || fail "eim-quoting:$ACTUAL"
-pass eim-quoting
-
 # skill 自己下载的 EIM 不在 PATH 里也必须能被下一次会话找到。
 printf '#!/usr/bin/env bash\necho eim-test\n' >"$TMP/eim.exe"
 chmod +x "$TMP/eim.exe"
@@ -205,7 +211,7 @@ FOUND="$(ESP_IDF_CY_EIM_BIN="$TMP/eim.exe" bash -c '. "$1"; find_eim' _ "$ROOT/s
 [ "$FOUND" = "$TMP/eim.exe" ] || fail eim-discovery
 pass eim-discovery
 
-# 模拟 Windows+EIM 完整 wrapper:命令字符串是一个 argv,IDF 路径作为第二个参数锁定。
+# 模拟 Windows+EIM wrapper:PowerShell 只收到固定 runner、NUL argv 文件和精确 IDF 路径。
 mkdir -p "$TMP/eim-idf/tools"
 : >"$TMP/eim-idf/tools/idf.py"
 printf '{"idfSelectedId":"fixture","idfInstalled":[{"id":"fixture","name":"v5.5.4","path":"%s"}]}\n' \
@@ -219,7 +225,12 @@ OUT="$(ESP_IDF_CY_OS=windows ESP_IDF_CY_EIM_BIN="$TMP/mock-eim" \
   ESP_IDF_CY_EIM_JSON="$TMP/eim_idf.json" \
   bash "$ROOT/scripts/idf-env.sh" idf.py --version)" || fail eim-wrapper
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<RunIdf>' || fail eim-wrapper-run
-printf '%s\n' "$OUT" | grep -Fqx 'ARG=<"idf.py" "--version">' || fail eim-wrapper-command
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<-RunnerPath>' || fail eim-wrapper-runner-flag
+printf '%s\n' "$OUT" | grep -Fqx "ARG=<$ROOT/scripts/eim-argv-runner.py>" || fail eim-wrapper-runner
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<-ArgvFile>' || fail eim-wrapper-argv-file
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<-IdfPath>' || fail eim-wrapper-idf-flag
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<-EspIdfJsonPath>' || fail eim-wrapper-registry-flag
+printf '%s\n' "$OUT" | grep -Fqx "ARG=<$TMP>" || fail eim-wrapper-registry-dir
 printf '%s\n' "$OUT" | grep -Fqx "ARG=<$TMP/eim-idf>" || fail eim-wrapper-idf
 pass eim-wrapper
 
@@ -231,18 +242,20 @@ OUT="$(ESP_IDF_CY_OS=mac ESP_IDF_CY_EIM_BIN="$TMP/mock-eim" \
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<--do-not-track>' || fail mac-eim-wrapper-privacy-flag
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<true>' || fail mac-eim-wrapper-privacy-value
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<run>' || fail mac-eim-wrapper-run
-printf '%s\n' "$OUT" | grep -Fqx "ARG=<\"idf.py\" \"-C\" \"$TMP/project-safe\" \"build\">" || fail mac-eim-wrapper-command
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<--esp-idf-json-path>' || fail mac-eim-wrapper-registry-flag
+printf '%s\n' "$OUT" | grep -Fqx 'ARG=<python "$ESP_IDF_CY_RUNNER" "$ESP_IDF_CY_ARGV_FILE">' || fail mac-eim-wrapper-command
 printf '%s\n' "$OUT" | grep -Fqx "ARG=<$TMP/eim-idf>" || fail mac-eim-wrapper-idf
 pass mac-eim-wrapper
 
 # 多版本 EIM:显式选非 selected 路径后仍必须走 RunIdf，并把所选路径传给 helper。
 mkdir -p "$TMP/eim-idf-alt/tools"
 : >"$TMP/eim-idf-alt/tools/idf.py"
+mkdir -p "$TMP/eim-multi"
 printf '{"idfSelectedId":"selected","idfInstalled":[{"id":"selected","name":"v5.5.4","path":"%s"},{"id":"alt","name":"v6.0.2","path":"%s"}]}\n' \
-  "$TMP/eim-idf" "$TMP/eim-idf-alt" >"$TMP/eim_idf_multi.json"
+  "$TMP/eim-idf" "$TMP/eim-idf-alt" >"$TMP/eim-multi/eim_idf.json"
 OUT="$(ESP_IDF_CY_OS=windows ESP_IDF_CY_EIM_BIN="$TMP/mock-eim" \
   ESP_IDF_CY_POWERSHELL_BIN="$TMP/mock-powershell" \
-  ESP_IDF_CY_EIM_JSON="$TMP/eim_idf_multi.json" ESP_IDF_CY_IDF_PATH="$TMP/eim-idf-alt" \
+  ESP_IDF_CY_EIM_JSON="$TMP/eim-multi/eim_idf.json" ESP_IDF_CY_IDF_PATH="$TMP/eim-idf-alt" \
   bash "$ROOT/scripts/idf-env.sh" idf.py --version)" || fail eim-explicit-wrapper
 printf '%s\n' "$OUT" | grep -Fqx 'ARG=<RunIdf>' || fail eim-explicit-run
 printf '%s\n' "$OUT" | grep -Fqx "ARG=<$TMP/eim-idf-alt>" || fail eim-explicit-path

@@ -92,21 +92,47 @@ find_eim() {
   return 1
 }
 
-# eim run 接受一整条命令字符串。在 Windows 上给每个 argv 单独加引号,
-# 保留 `-C "C:\\Users\\A B\\proj"` 这类空格路径的参数边界。
-eim_command_string() {
-  local arg out=""
-  [ "$#" -gt 0 ] || return 64
-  for arg in "$@"; do
-    case "$arg" in
-      *'"'*|*$'\r'*|*$'\n'*)
-        echo "ERROR=EIM 命令参数不支持引号或换行: $arg" >&2
-        return 64
-        ;;
-    esac
-    out="${out}${out:+ }\"$arg\""
-  done
-  printf '%s\n' "$out"
+# EIM `run` 的外层 API 只能接收一条 shell 命令字符串。真实 argv 绝不能
+# 拼进这个字符串:EIM 会在激活脚本里二次解释 `$()`、反引号、变量和重定向。
+# 我们只给 EIM 下列固定 launcher;真实 argv 走 mode-0600 的 NUL/UTF-8 文件。
+eim_posix_run_command() {
+  printf '%s\n' 'python "$ESP_IDF_CY_RUNNER" "$ESP_IDF_CY_ARGV_FILE"'
+}
+
+eim_cmd_run_command() {
+  printf '%s\n' 'python "%ESP_IDF_CY_RUNNER%" "%ESP_IDF_CY_ARGV_FILE%"'
+}
+
+write_secure_argv_file() {
+  local temp_root file old_umask
+  [ "$#" -gt 0 ] || {
+    echo "ERROR=argv 文件至少需要一个命令参数" >&2
+    return 64
+  }
+  temp_root="${TMPDIR:-/tmp}"
+  [ -d "$temp_root" ] || {
+    echo "ERROR=临时目录不存在: $temp_root" >&2
+    return 73
+  }
+
+  old_umask="$(umask)"
+  umask 077
+  file="$(mktemp "${temp_root%/}/esp-idf-cy-argv.XXXXXXXX")" || {
+    umask "$old_umask"
+    echo "ERROR=无法创建安全 argv 临时文件" >&2
+    return 73
+  }
+  umask "$old_umask"
+  chmod 600 "$file" || { rm -f "$file"; return 73; }
+
+  # Shell argv 本身不能包含 NUL,因此 NUL 是无歧义的字段边界。保留空参数、
+  # Unicode、引号、换行和所有 shell 元字符,由 Python launcher 严格解码。
+  if ! LC_ALL=C printf '%s\0' "$@" >"$file"; then
+    rm -f "$file"
+    echo "ERROR=无法写入 argv 临时文件" >&2
+    return 74
+  fi
+  printf '%s\n' "$file"
 }
 
 # ESP-IDF/CMake 官方不支持 IDF 或项目路径含空白。参数引用正确只能防止 shell 拆词，
@@ -214,7 +240,11 @@ idf_min_python() {
   case "$1" in
     v6*|6*)          echo 3.10 ;;
     v5.5*|5.5*)      echo 3.9  ;;
-    *)               echo 3.8  ;;
+    v3*|3*|v4*|4*|v5*|5*) echo 3.8 ;;
+    *)
+      echo "ERROR=未知 ESP-IDF major 的 Python 下限: $1" >&2
+      return 6
+      ;;
   esac
 }
 
@@ -247,7 +277,11 @@ is_idf_dir() { [ -n "${1:-}" ] && [ -f "$1/tools/idf.py" ]; }
 # EIM 的安装登记文件(官方:POSIX 默认 ~/.espressif/tools,Windows 默认 C:\Espressif\tools)
 eim_json_path() {
   if [ -n "${ESP_IDF_CY_EIM_JSON:-}" ]; then
-    echo "$ESP_IDF_CY_EIM_JSON"
+    if [ "$OS" = windows ]; then
+      cygpath -u "$ESP_IDF_CY_EIM_JSON" 2>/dev/null || echo "$ESP_IDF_CY_EIM_JSON"
+    else
+      echo "$ESP_IDF_CY_EIM_JSON"
+    fi
     return
   fi
   if [ "$OS" = windows ]; then
@@ -258,22 +292,70 @@ eim_json_path() {
   fi
 }
 
-# 解析 eim_idf.json,输出行: <path>|<name>,selected 的排第一
+eim_json_dir() {
+  local registry base
+  registry="$(eim_json_path)" || return $?
+  base="$(basename "$registry")"
+  [ "$base" = eim_idf.json ] || {
+    echo "ERROR=ESP_IDF_CY_EIM_JSON 必须指向名为 eim_idf.json 的真实登记文件: $registry" >&2
+    return 64
+  }
+  dirname "$registry"
+}
+
+# 解析 eim_idf.json,输出行: <path><TAB><name>,selected 的排第一。
+# IDF 路径本就禁止空白，因此 TAB 可作边界；合法路径里的 `|` 仍保持原样。
 parse_eim_json() {
-  local f="$1" py
+  local f="$1" py win_path
   [ -f "$f" ] || return 1
-  py="$(find_python)" || { grep -o '"path"[[:space:]]*:[[:space:]]*"[^"]*"' "$f" | sed 's/.*: *"//; s/"$//; s/$/|unknown/'; return 0; }
+  py="$(find_python || true)"
+  if [ -z "$py" ] && [ "$OS" = windows ]; then
+    # Windows 裸机可能还没有 Python；系统 PowerShell 能安全解析 JSON，路径只经
+    # 进程环境传入固定命令，不插入 PowerShell 源码。
+    win_path="$(cygpath -w "$f" 2>/dev/null || printf '%s' "$f")"
+    ESP_IDF_CY_EIM_JSON_WIN="$win_path" ps_run '
+$ErrorActionPreference = "Stop"
+$data = Get-Content -Raw -LiteralPath $env:ESP_IDF_CY_EIM_JSON_WIN | ConvertFrom-Json
+if ($null -eq $data -or $null -eq $data.idfInstalled) { throw "EIM JSON missing idfInstalled" }
+$selected = [string]$data.idfSelectedId
+@($data.idfInstalled) | Sort-Object @{Expression={ if ([string]$_.id -eq $selected) { 0 } else { 1 } }} | ForEach-Object {
+  if ($null -eq $_ -or [string]::IsNullOrWhiteSpace([string]$_.id) -or
+      [string]::IsNullOrWhiteSpace([string]$_.name) -or
+      [string]::IsNullOrWhiteSpace([string]$_.path) -or
+      [string]$_.id -match '[\r\n\t]' -or [string]$_.name -match '[\r\n\t]' -or
+      [string]$_.path -match '[\r\n\t]') { throw "EIM JSON contains an invalid installation record" }
+  $name = [string]$_.name
+  [Console]::Out.WriteLine(([string]$_.path) + "`t" + $name)
+}'
+    return $?
+  fi
+  if [ -z "$py" ]; then
+    echo "ERROR=缺少可安全解析 EIM JSON 的 Python;拒绝用 grep 猜登记路径" >&2
+    return 69
+  fi
   "$py" - "$f" <<'PYEOF'
 import json, sys
 try:
     d = json.load(open(sys.argv[1], encoding="utf-8"))
-except Exception:
-    sys.exit(0)
+except Exception as exc:
+    print("ERROR=EIM JSON 无法解析: %s" % exc, file=sys.stderr)
+    sys.exit(65)
+if not isinstance(d, dict) or "idfInstalled" not in d or not isinstance(d["idfInstalled"], list):
+    print("ERROR=EIM JSON 结构无效", file=sys.stderr)
+    sys.exit(65)
 sel = d.get("idfSelectedId", "")
-items = d.get("idfInstalled", []) or []
+items = d["idfInstalled"]
+if not all(
+    isinstance(item, dict)
+    and all(isinstance(item.get(key), str) and item[key].strip() for key in ("id", "name", "path"))
+    and all(not any(char in item[key] for char in "\r\n\t") for key in ("id", "name", "path"))
+    for item in items
+):
+    print("ERROR=EIM JSON 安装记录结构无效", file=sys.stderr)
+    sys.exit(65)
 items.sort(key=lambda x: x.get("id") != sel)
 for it in items:
-    print("%s|%s" % (it.get("path", ""), it.get("name") or it.get("id", "")))
+    print("%s\t%s" % (it.get("path", ""), it.get("name") or it.get("id", "")))
 PYEOF
 }
 
@@ -337,8 +419,12 @@ find_idf() {
   # 3) EIM 登记文件(跨平台;VS Code 扩展也读它)
   local ej; ej="$(eim_json_path)"
   if [ -f "$ej" ]; then
-    local line p n first_eim="" registered_path=""
-    while IFS='|' read -r p n; do
+    local line p n first_eim="" registered_path="" eim_records="" eim_parse_rc=0
+    eim_records="$(parse_eim_json "$ej")"; eim_parse_rc=$?
+    if [ "$eim_parse_rc" -ne 0 ]; then
+      DISCOVERY_ERROR="EIM 登记文件无法结构化解析(rc=$eim_parse_rc): $ej"
+    else
+      while IFS=$'\t' read -r p n; do
       [ -n "$p" ] || continue
       [ "$OS" = windows ] && p="$(cygpath -u "$p" 2>/dev/null || echo "$p")"
       if is_idf_dir "$p"; then
@@ -355,11 +441,12 @@ find_idf() {
         # 不能因为“显式”二字退化到实验性 export.bat/cmd 路线。
         [ "$FOUND_IDF_PATH" = "$registered_path" ] && IDF_KIND=eim
       fi
-    done <<EOF
-$(parse_eim_json "$ej")
+      done <<EOF
+$eim_records
 EOF
-    if [ -z "$FOUND_IDF_PATH" ] && [ -n "$first_eim" ]; then
-      FOUND_IDF_PATH="$first_eim"; IDF_KIND=eim
+      if [ -z "$FOUND_IDF_PATH" ] && [ -n "$first_eim" ]; then
+        FOUND_IDF_PATH="$first_eim"; IDF_KIND=eim
+      fi
     fi
   fi
 

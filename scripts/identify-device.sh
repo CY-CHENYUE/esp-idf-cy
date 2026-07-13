@@ -24,8 +24,14 @@ if [ "$VERSION_RC" -ne 0 ]; then
   printf '%s\n' "$VERSION_OUT" >&2
   exit 2
 fi
-MAJOR="$(printf '%s\n' "$VERSION_OUT" | sed -nE 's/.*v?([0-9]+)\.[0-9]+.*/\1/p' | head -1)"
-[ -n "$MAJOR" ] || MAJOR=4
+MAJOR="$(printf '%s\n' "$VERSION_OUT" | sed -nE \
+  's/.*[Ee][Ss][Pp][Tt][Oo][Oo][Ll](\.py)?[[:space:]]+[vV]?([0-9]+)\.[0-9]+.*/\2/p' \
+  | head -1)"
+[ -n "$MAJOR" ] || {
+  echo "ERROR=无法解析 esptool 主版本;拒绝猜测命令格式" >&2
+  printf '%s\n' "$VERSION_OUT" >&2
+  exit 2
+}
 
 if [ "$MAJOR" -ge 5 ]; then
   CHIP_CMD=chip-id
@@ -54,7 +60,12 @@ if [ -z "$MAC" ]; then
   fi
   MAC="$(printf '%s\n' "$MAC_OUT" | sed -nE 's/.*(([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}).*/\1/p' | head -1)"
 fi
-CHIP="$(printf '%s\n' "$CHIP_OUT" | sed -nE 's/.*Chip is ([^(]+).*/\1/p' | head -1 | sed 's/[[:space:]]*$//')"
+# esptool v4 使用 `Chip is ...`,v5 改为 `Chip type: ...`。这里只接受这两种
+# 官方字段,避免从其他提示行猜型号后把不完整身份放过安全门禁。
+CHIP="$(printf '%s\n' "$CHIP_OUT" | sed -nE \
+  -e 's/.*Chip is[[:space:]]+([^(]+).*/\1/p' \
+  -e 's/.*Chip type:[[:space:]]+(.+)/\1/p' \
+  | head -1 | sed -E 's/[[:space:]]*\(.*$//; s/[[:space:]]*$//')"
 [ -n "$MAC" ] || { echo "ERROR=未能从 esptool 输出解析 MAC" >&2; exit 4; }
 [ -n "$CHIP" ] || {
   echo "CHIP=unknown"

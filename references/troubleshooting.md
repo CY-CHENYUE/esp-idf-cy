@@ -1,6 +1,7 @@
 # esp-idf-cy · 排错剧本
 
 按「现象 → 原因 → 动作」组织。给用户的指引要转译成动作("按住 BOOT 键"),不要甩原始报错。
+这些条目是已知模式，不代替实机证据；报错不完全吻合时先调查，不要机械套解法。最近复核：2026-07-13。
 
 ### ESP-IDF或项目路径含空格 / CMake 找不到组件
 - 原因:ESP-IDF 官方明确不支持 IDF 和项目路径含空白。即使 shell 参数引用完全正确,构建仍可能失败。
@@ -60,6 +61,19 @@
   Espressif Authenticode 签名,双验通过后才原子落盘和执行。失败时不要绕过验签手动执行 exe;
   先查 GitHub API/证书链/系统时间/公司代理。EIM 安装与运行默认关闭 telemetry。
 
+### Windows: 系统是 ARM64，但 release 只有 eim-cli-windows-x64
+- 原因:当前官方 Windows EIM CLI 资产是 x64；“Windows 11”本身不能证明 CPU/OS 架构兼容。
+- 动作:先调用固定 helper 的 `CheckPlatform`（人工诊断可读 `.NET RuntimeInformation.OSArchitecture`
+  和 `PROCESSOR_ARCHITEW6432`）。非 x64 时停止自动下载，
+  复核当期官方 release 是否已有对应资产；没有就明确说明支持边界并选择官方兼容路线，不能硬跑 x64 包。
+
+### EIM 已登记目标版本，但 idf.py/export/Python 工具链损坏
+- 原因:这是“已安装但损坏”，不是“未安装”；另一个同版本目录或 ambient `IDF_PATH` 还可能污染验证。
+- 动作:从项目证据与 `eim list`/登记文件锁定精确路径，对该路径执行 `eim fix -p <path>`，清除外部
+  `IDF_PATH` 后重跑真命令与严格门禁。多个同版本路径无法消歧时停下取证，不重新 install、不静默升级。
+  若登记路径已不存在或不再是有效 IDF 仓库，`fix` 本身也不适用；不要把它误报为“未安装”后自动另装，
+  由 Agent 说明损坏程度，再决定是否取得用户同意按原位置重建。
+
 ### install.sh 显示安装器成功但最终 VERIFY_INSTALL=no
 - 原因:安装器退出 0 不代表环境真的可用;可能是 `idf.py --version` 失败、仓库元数据或
   真命令报告了错误版本,
@@ -69,7 +83,8 @@
   `INSTALL_READY=yes` 才能向用户报告装好。
 
 ### Python 版本不够
-- 闸门:v5.5 需 ≥3.9;v6.0 需 ≥3.10;≤v5.4 需 ≥3.8。
+- 闸门:先读取所选 IDF 自带版本检查/当前官方前置。已验证快照为 v5.5 需 ≥3.9、v6.0 需 ≥3.10、
+  ≤v5.4 需 ≥3.8；未知的新 major 必须重新取证或 fail closed，不能自动套用 3.8。
 - 动作:macOS 重跑顶层 `install.sh`,由 bootstrap 复用兼容 Python、用现有 Homebrew 自动安装,
   或下载验签后的 Python.org pkg;Windows EIM 会自动装。也可明确选择项目要求的较低 IDF 版本。
 
@@ -125,6 +140,10 @@
   重配 USB 引脚、深睡或崩溃同样可能没日志,不能都误判成下载模式。
 - `port_ambiguous`/rc=3:系统里有多个串口,必须选择或暂时拔掉无关设备。macOS `/dev/cu.*` 和
   Windows COM 号只是本轮定位符,不是永久设备身份。
+- `port_selection_required`/rc=3:原烧录口消失，只出现了新的候选路径。即使只有一个候选也不能
+  自动认作原板；Agent 应结合刷新前后清单、USB topology/serial 或用户明确选择，再以 `-p` 指定恢复口。
+  最终恢复后 verify 不再运行 esptool，所以 `CURRENT_PORT_IDENTITY=unverified` 是诚实边界，
+  `PRE_RESET_IDENTITY=matched` 只说明 RESET/重新上电前的 MAC 已匹配。
 
 ### S3 特有:烧完串口从系统消失
 - 原因:固件行为——重配了 USB 引脚(S3 是 GPIO19/20)、禁用了 USB-Serial/JTAG、或进了深睡。

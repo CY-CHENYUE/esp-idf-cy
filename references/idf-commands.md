@@ -1,6 +1,8 @@
 # esp-idf-cy · 命令速查
 
-> 所有命令一律经 wrapper:`bash <skill>/scripts/idf-env.sh <命令...>`。下表省略这个前缀。
+> 这是按需参考，不是固定命令清单。执行前让 Agent 以所选 IDF 的真实帮助、项目状态和当前机器复核。
+> `idf-env.sh` 是一种免激活原语；在同一次调用中可靠激活 IDF 并保持 argv 边界的原生方式同样有效。
+> 下表为简洁省略环境装配前缀。最近复核：2026-07-13。
 
 运行项目前先确认 IDF 和项目绝对路径均不含空白。ESP-IDF/CMake 官方不支持这类路径;
 引号只能保持 argv,不能让构建系统支持它。
@@ -25,10 +27,20 @@
 
 禁用(agent 环境):`menuconfig`(TUI)、裸 `monitor`(交互长驻,用 monitor.sh)。
 
+### 改动与授权边界
+
+- `build`、`size*`、`reconfigure` 只改构建产物，Agent 可在用户请求的工程范围内执行。
+- `set-target` 会重建 `sdkconfig`，`fullclean` 会删除整个 `build/`。执行前先检查未提交配置和项目约定，
+  向用户说明影响；不要把它们当作每次构建的固定前置。
+- `flash`、`erase-flash`、esptool `write-flash`/`erase-flash` 都会写硬件。wrapper 能正确传参不等于
+  已获授权；仍要先验芯片+MAC、核对项目 target，并取得本轮明确确认。
+- 用户只要求编译、诊断或查看日志时，禁止顺手追加任何烧录/擦除命令。
+
 ## 芯片目标名
 
-`esp32` `esp32s2` `esp32s3` `esp32c2` `esp32c3` `esp32c6` `esp32h2` `esp32p4`
-(用户说 "S3" → esp32s3;"C3" → esp32c3;不确定就问,别猜)
+先在**所选 IDF 环境**运行 `idf.py --list-targets`，再把用户的板子/芯片映射到真实候选。
+例如用户说“S3”通常对应 `esp32s3`，“C6”通常对应 `esp32c6`；新芯片是否支持以当前命令输出为准，
+不要让这里的示例列表变成静态白名单。型号不明确或同一开发板存在多个模组版本时再问，不要猜。
 
 ## esptool(单独用的场景:烧现成 .bin、读芯片信息)
 
@@ -58,12 +70,14 @@ eim --do-not-track true list                         # 已装 IDF 版本
 eim --do-not-track true select <IDF_TAG>             # 切默认版本
 eim --do-not-track true install -i <IDF_TAG> -t esp32s3          # macOS/POSIX 前置需先满足
 eim --do-not-track true install -i <IDF_TAG> -t esp32s3 -a true  # -a 自动补前置仅 Windows
-eim --do-not-track true run "idf.py build" <IDF路径> # 免激活,显式锁定安装
+eim --do-not-track true fix -p <精确IDF路径>          # 修复已登记但损坏的安装，不等于升级
 ```
 
 macOS 官方推荐 `brew tap espressif/eim && brew install eim`(GUI 可用 `--cask eim-gui`)。
-Agent 默认用 `idf-env.sh`：macOS/Linux 直接调用原生 EIM；Windows 额外复验 EIM Authenticode；
-两边都关闭 telemetry并透传退出码。wrapper 会明确拒绝 IDF/项目路径含空白。
+EIM 的 `run` 接收一段会被写入激活脚本的命令文本，因此不要把项目路径、正则或其他用户数据直接
+拼进命令字符串。Agent 默认使用 Skill 的固定 argv relay：参数先写入权限受限的 NUL 分隔文件，
+EIM 内层只执行固定 runner；Windows 还会复验 EIM Authenticode。两边都关闭 telemetry并透传退出码。
+实际 IDF/项目路径含空白仍应按 ESP-IDF 自身限制拦截，而不是误以为安全传参能修复 CMake 兼容性。
 
 ## 常用 sdkconfig 项(写进 <proj>/sdkconfig.defaults,再 set-target 重生成)
 
@@ -95,10 +109,11 @@ bash <skill>/scripts/post-flash-check.sh prepare -p <烧录口> -m <确认MAC> \
   --download-entry <automatic|manual|unknown>
 # 记下 prepare 的 POST_FLASH_SESSION。manual/unknown 返回 rc20:让用户松开 BOOT 后
 # 按 RESET/EN 或重新上电;最终恢复后禁止再 identify/esptool,verify 校验 session、
-# 重扫端口并通过串口控制线受控 reset 后匹配应用健康日志
+# 重扫端口；若路径变化，Agent 结合设备证据明确选择后再通过串口控制线受控 reset 并匹配应用健康日志
 bash <skill>/scripts/post-flash-check.sh verify --session <POST_FLASH_SESSION> \
   -C <proj> -e "Hello world"
 ```
 
 `prepare` 的 rc=0 只表示身份准备完成,不是应用 READY;只有 `verify` 输出
-`POST_FLASH_READY=yes`/rc=0 才算烧录后闭环。多口时 verify 会 rc=3,不按端口名猜设备。
+`POST_FLASH_READY=yes`/rc=0 才算烧录后闭环。多口或唯一候选换了端口路径时 verify 会 rc=3，
+由 Agent 明确传 `-p <恢复口>` 后续验；当前口身份仍是 `unverified`，不按端口名冒充 MAC 重验。

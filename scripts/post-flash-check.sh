@@ -30,8 +30,11 @@ EOF
 }
 [ -n "$PHASE" ] || { usage; exit 0; }
 
-EXPECTED_MAC=""; PROJECT=""; EXPECT=""; PORT=""; SESSION_TOKEN=""
+EXPECTED_MAC=""; PROJECT=""; EXPECT=""; PORT=""; PORT_GIVEN=no; SESSION_TOKEN=""
 TOTAL_TIMEOUT=60; ENTRY_MODE=unknown; ENTRY_GIVEN=no
+PRE_RESET_IDENTITY=unverified
+CURRENT_PORT_IDENTITY=unverified
+PORT_SELECTION=unselected
 
 need_value() {
   [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "ERROR=$1 需要一个非空值" >&2; exit 64; }
@@ -42,7 +45,7 @@ while [ "$#" -gt 0 ]; do
     -m|--expected-mac) need_value "$@"; EXPECTED_MAC="$2"; shift 2 ;;
     -C|--project) need_value "$@"; PROJECT="$2"; shift 2 ;;
     -e|--expect) need_value "$@"; EXPECT="$2"; shift 2 ;;
-    -p|--port) need_value "$@"; PORT="$2"; shift 2 ;;
+    -p|--port) need_value "$@"; PORT="$2"; PORT_GIVEN=yes; shift 2 ;;
     -t|--timeout) need_value "$@"; TOTAL_TIMEOUT="$2"; shift 2 ;;
     --download-entry) need_value "$@"; ENTRY_MODE="$2"; ENTRY_GIVEN=yes; shift 2 ;;
     --manual-download) ENTRY_MODE=manual; ENTRY_GIVEN=yes; shift ;;
@@ -69,11 +72,18 @@ normalize_mac() {
   printf '%s\n' "$mac"
 }
 emit_common() {
+  local identity_status="$3"
+  # verify 阶段只能证明 RESET 前的 MAC。恢复后的串口即使路径未变，也没有再次
+  # 运行 esptool，因此兼容字段 IDENTITY_STATUS 必须反映当前端口仍未验证。
+  [ "$PHASE" != verify ] || identity_status="$CURRENT_PORT_IDENTITY"
   echo "POST_FLASH_PHASE=$PHASE"
   echo "POST_FLASH_STATE=$1"
   echo "POST_FLASH_READY=$2"
   echo "ENTRY_MODE=$ENTRY_MODE"
-  echo "IDENTITY_STATUS=$3"
+  echo "IDENTITY_STATUS=$identity_status"
+  echo "PRE_RESET_IDENTITY=$PRE_RESET_IDENTITY"
+  echo "CURRENT_PORT_IDENTITY=$CURRENT_PORT_IDENTITY"
+  echo "PORT_SELECTION=$PORT_SELECTION"
   echo "APPLICATION_EVIDENCE=$4"
   echo "DOWNLOAD_MODE_SUSPECTED=$5"
   echo "ACTION_REQUIRED=$6"
@@ -111,6 +121,10 @@ if [ "$PHASE" = prepare ]; then
     echo "IDENTITY_REVERIFIED=no"; echo "FAILURE_KIND=identity_mismatch"; exit 5
   fi
 
+  PRE_RESET_IDENTITY=matched
+  CURRENT_PORT_IDENTITY=matched
+  PORT_SELECTION=original
+
   umask 077
   mkdir -p "$SESSION_DIR" || { echo "ERROR=无法创建 post-flash session 目录" >&2; exit 4; }
   chmod 700 "$SESSION_DIR" 2>/dev/null || true
@@ -147,16 +161,28 @@ SESSION_VERSION="$(sed -n 's/^VERSION=//p' "$SESSION_FILE" | head -1)"
 SESSION_EXPECTED_MAC="$(sed -n 's/^EXPECTED_MAC=//p' "$SESSION_FILE" | head -1)"
 SESSION_OBSERVED_MAC="$(sed -n 's/^OBSERVED_MAC=//p' "$SESSION_FILE" | head -1)"
 ENTRY_MODE="$(sed -n 's/^ENTRY_MODE=//p' "$SESSION_FILE" | head -1)"
+PREPARED_PORT="$(sed -n 's/^PREPARED_PORT=//p' "$SESSION_FILE" | head -1)"
 PREPARED_AT="$(sed -n 's/^PREPARED_AT=//p' "$SESSION_FILE" | head -1)"
 [ "$SESSION_VERSION" = 1 ] || { echo "ERROR=session 版本无效" >&2; exit 64; }
 NORMAL_SESSION_MAC="$(normalize_mac "$SESSION_EXPECTED_MAC")" || { echo "ERROR=session MAC 无效" >&2; exit 64; }
 [ "$NORMAL_SESSION_MAC" = "$(normalize_mac "$SESSION_OBSERVED_MAC" 2>/dev/null)" ] || { echo "ERROR=session 身份不一致" >&2; exit 64; }
 case "$ENTRY_MODE" in automatic|manual|unknown) ;; *) echo "ERROR=session entry 无效" >&2; exit 64 ;; esac
+case "$PREPARED_PORT" in ''|*$'\n'*|*$'\r'*) echo "ERROR=session prepared port 无效" >&2; exit 64 ;; esac
 case "$PREPARED_AT" in ''|*[!0-9]*) echo "ERROR=session 时间无效" >&2; exit 64 ;; esac
 NOW="$(date +%s)"; AGE=$((NOW - PREPARED_AT))
 [ "$AGE" -ge 0 ] && [ "$AGE" -le "$SESSION_TTL" ] || { echo "ERROR=session 已过期" >&2; exit 64; }
 [ -n "$PROJECT" ] || { echo "ERROR=verify 必须给出 -C/--project" >&2; exit 64; }
 [ -n "$EXPECT" ] || { echo "ERROR=verify 必须给出 -e/--expect；无应用证据不能判 READY" >&2; exit 64; }
+
+# session 只证明最终 RESET 前、PREPARED_PORT 上的 MAC 匹配。verify 阶段不得再
+# 运行 identify/esptool，因此恢复后的 CURRENT_PORT_IDENTITY 永远是 unverified。
+PRE_RESET_IDENTITY=matched
+CURRENT_PORT_IDENTITY=unverified
+if [ "$PORT_GIVEN" = yes ]; then
+  PORT_SELECTION=agent_explicit
+else
+  PORT_SELECTION=candidate_required
+fi
 
 WAIT_HELPER="${ESP_IDF_CY_POST_FLASH_WAIT_PORT_BIN:-$SCRIPT_DIR/wait-port.sh}"
 MONITOR_HELPER="${ESP_IDF_CY_POST_FLASH_MONITOR_BIN:-$SCRIPT_DIR/monitor.sh}"
@@ -170,12 +196,14 @@ REMAINING="$(remaining_seconds)" || {
   emit_common port_unavailable no matched not_observed unknown check_port
   echo "POST_FLASH_SESSION=$SESSION_TOKEN"; echo "FAILURE_KIND=port_timeout"; exit 2
 }
-WAIT_ARGS=(-t "$REMAINING" -i 1); [ -n "$PORT" ] && WAIT_ARGS+=(-p "$PORT")
+WAIT_ARGS=(-t "$REMAINING" -i 1); [ "$PORT_GIVEN" = no ] || WAIT_ARGS+=(-p "$PORT")
 WAIT_OUT="$(run_with_timeout "$REMAINING" bash "$WAIT_HELPER" "${WAIT_ARGS[@]}" 2>&1)"; WAIT_RC=$?
 [ -z "$WAIT_OUT" ] || printf '%s\n' "$WAIT_OUT" >&2
 if [ "$WAIT_RC" -eq 3 ] || printf '%s\n' "$WAIT_OUT" | grep -q '^AMBIGUOUS=yes$'; then
   emit_common port_ambiguous no matched not_observed unknown select_or_isolate_port
-  echo "POST_FLASH_SESSION=$SESSION_TOKEN"; echo "FAILURE_KIND=port_ambiguous"; exit 3
+  echo "POST_FLASH_SESSION=$SESSION_TOKEN"; echo "PREPARED_PORT=$PREPARED_PORT"
+  printf '%s\n' "$WAIT_OUT" | sed -n 's/^CANDIDATE_PORT=/CANDIDATE_PORT=/p'
+  echo "FAILURE_KIND=port_ambiguous"; exit 3
 fi
 if [ "$WAIT_RC" -ne 0 ]; then
   emit_common port_unavailable no matched not_observed unknown check_port
@@ -188,6 +216,27 @@ CANDIDATE_COUNT="$(printf '%s\n' "$WAIT_OUT" | grep -c '^CANDIDATE_PORT=')"
 }
 CANDIDATE_PORT="$(printf '%s\n' "$WAIT_OUT" | sed -n 's/^CANDIDATE_PORT=//p' | head -1)"
 [ -n "$CANDIDATE_PORT" ] || { echo "ERROR=候选端口为空" >&2; exit 2; }
+
+if [ "$PORT_GIVEN" = yes ]; then
+  # Agent 已在对话/外部证据层明确选择恢复口；helper 不得悄悄替换它。
+  [ "$CANDIDATE_PORT" = "$PORT" ] || {
+    emit_common port_unavailable no matched not_observed unknown check_port
+    echo "POST_FLASH_SESSION=$SESSION_TOKEN"; echo "PREPARED_PORT=$PREPARED_PORT"
+    echo "REQUESTED_PORT=$PORT"; echo "CANDIDATE_PORT=$CANDIDATE_PORT"
+    echo "FAILURE_KIND=port_contract"; exit 2
+  }
+  PORT_SELECTION=agent_explicit
+elif [ "$CANDIDATE_PORT" = "$PREPARED_PORT" ]; then
+  PORT_SELECTION=original
+else
+  # 一个新端口也只是候选。端口路径不是设备身份，必须把选择权交还 Agent，
+  # 由其结合 USB topology/序列号/用户确认后用显式 -p 再次 verify。
+  PORT_SELECTION=candidate_required
+  emit_common port_selection_required no matched not_observed unknown select_recovery_port
+  echo "POST_FLASH_SESSION=$SESSION_TOKEN"; echo "PREPARED_PORT=$PREPARED_PORT"
+  echo "CANDIDATE_PORT=$CANDIDATE_PORT"; echo "FAILURE_KIND=port_selection_required"
+  exit 3
+fi
 REMAINING="$(remaining_seconds)" || {
   emit_common app_unverified no matched not_observed unknown inspect_log_or_reset
   echo "POST_FLASH_SESSION=$SESSION_TOKEN"; echo "FAILURE_KIND=expect_timeout"; exit 1
