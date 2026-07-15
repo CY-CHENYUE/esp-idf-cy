@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">esp-idf-cy workflow</title>
+  <desc id="desc">Six numbered stages: inspect machine and project, reuse repair or install an exact environment, build for the target, identify chip and MAC, obtain confirmation before flashing, and verify application-specific serial evidence.</desc>
+  <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#d8d1c3" stroke-width="1"/></pattern></defs>
+  <rect width="1200" height="360" fill="#f4f0e7"/><rect width="1200" height="360" fill="url(#grid)" opacity=".48"/>
+  <text x="48" y="42" fill="#b72b24" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700" letter-spacing="2">FIELD NOTE 02 / WORKFLOW</text>
+  <text x="48" y="88" fill="#1d1c1a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="34" font-weight="700">Agent absorbs the setup maze. Evidence closes the loop.</text>
+  <g transform="translate(48 128)" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif">
+    <g transform="translate(0 0)"><text y="28" fill="#b72b24" font-family="Georgia,serif" font-size="34" font-weight="700">01</text><text y="66" fill="#1d1c1a" font-size="17" font-weight="700">Inspect</text><text y="92" fill="#5b554e" font-size="14">machine + project</text></g>
+    <g transform="translate(188 0)"><text y="28" fill="#b72b24" font-family="Georgia,serif" font-size="34" font-weight="700">02</text><text y="66" fill="#1d1c1a" font-size="17" font-weight="700">Prepare</text><text y="92" fill="#5b554e" font-size="14">reuse / repair / install</text></g>
+    <g transform="translate(376 0)"><text y="28" fill="#b72b24" font-family="Georgia,serif" font-size="34" font-weight="700">03</text><text y="66" fill="#1d1c1a" font-size="17" font-weight="700">Build</text><text y="92" fill="#5b554e" font-size="14">exact target + IDF</text></g>
+    <g transform="translate(564 0)"><text y="28" fill="#b72b24" font-family="Georgia,serif" font-size="34" font-weight="700">04</text><text y="66" fill="#1d1c1a" font-size="17" font-weight="700">Identify</text><text y="92" fill="#5b554e" font-size="14">chip + MAC</text></g>
+    <g transform="translate(752 0)"><text y="28" fill="#b72b24" font-family="Georgia,serif" font-size="34" font-weight="700">05</text><text y="66" fill="#1d1c1a" font-size="17" font-weight="700">Confirm + flash</text><text y="92" fill="#5b554e" font-size="14">explicit authority</text></g>
+    <g transform="translate(940 0)"><text y="28" fill="#b72b24" font-family="Georgia,serif" font-size="34" font-weight="700">06</text><text y="66" fill="#1d1c1a" font-size="17" font-weight="700">Verify</text><text y="92" fill="#5b554e" font-size="14">application log</text></g>
+  </g>
+  <path d="M48 252H1128" stroke="#242321" stroke-width="2"/>
+  <g fill="#f4f0e7" stroke="#242321" stroke-width="2"><circle cx="48" cy="252" r="7"/><circle cx="236" cy="252" r="7"/><circle cx="424" cy="252" r="7"/><circle cx="612" cy="252" r="7"/><circle cx="800" cy="252" r="7"/></g>
+  <circle cx="988" cy="252" r="8" fill="#b72b24"/><path d="M988 252H1128" stroke="#b72b24" stroke-width="4"/>
+  <text x="48" y="316" fill="#5b554e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">Healthy environment: reuse it. Damaged installation: repair the exact path. Missing environment: then install.</text>
+  <text x="1152" y="336" text-anchor="end" fill="#777068" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">STATE / EVIDENCE / AUTHORITY</text>
+</svg>

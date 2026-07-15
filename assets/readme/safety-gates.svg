@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 330" role="img" aria-labelledby="title desc">
+  <title id="title">Three safety gates before esp-idf-cy reports a completed flash workflow</title>
+  <desc id="desc">Gate one verifies chip and MAC, gate two requires explicit user authority before writing hardware, and gate three requires application-specific serial evidence rather than only a successful flash exit code.</desc>
+  <rect width="1200" height="330" fill="#f4f0e7"/>
+  <path d="M48 52H1152M48 276H1152" stroke="#242321" stroke-width="2"/>
+  <text x="48" y="40" fill="#b72b24" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700" letter-spacing="2">FIELD NOTE 03 / SAFETY GATES</text>
+  <g transform="translate(48 88)" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif">
+    <g><text x="0" y="32" fill="#b72b24" font-family="Georgia,serif" font-size="42" font-weight="700">01</text><text x="0" y="72" fill="#1d1c1a" font-size="22" font-weight="700">Identity</text><text x="0" y="102" fill="#5b554e" font-size="16">Read chip + MAC.</text><text x="0" y="128" fill="#5b554e" font-size="16">Re-identify before any continued write.</text></g>
+    <path d="M318 0V150" stroke="#777068"/><path d="M338 76H382" stroke="#b72b24" stroke-width="3"/><path d="m374 68 10 8-10 8" fill="none" stroke="#b72b24" stroke-width="3"/>
+    <g transform="translate(410 0)"><text x="0" y="32" fill="#b72b24" font-family="Georgia,serif" font-size="42" font-weight="700">02</text><text x="0" y="72" fill="#1d1c1a" font-size="22" font-weight="700">Authority</text><text x="0" y="102" fill="#5b554e" font-size="16">Match project target.</text><text x="0" y="128" fill="#5b554e" font-size="16">Wait for explicit user confirmation.</text></g>
+    <path d="M728 0V150" stroke="#777068"/><path d="M748 76H792" stroke="#b72b24" stroke-width="3"/><path d="m784 68 10 8-10 8" fill="none" stroke="#b72b24" stroke-width="3"/>
+    <g transform="translate(820 0)"><text x="0" y="32" fill="#b72b24" font-family="Georgia,serif" font-size="42" font-weight="700">03</text><text x="0" y="72" fill="#1d1c1a" font-size="22" font-weight="700">Evidence</text><text x="0" y="102" fill="#5b554e" font-size="16">Restore normal boot.</text><text x="0" y="128" fill="#5b554e" font-size="16">Match an application-specific log.</text></g>
+  </g>
+  <text x="48" y="310" fill="#5b554e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">A port name is transport, not identity. flash exit 0 is transport success, not application proof.</text>
+</svg>

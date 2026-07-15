@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">esp-idf-cy — from an unknown machine to a verified ESP32 application</title>
+  <desc id="desc">An engineering notebook layout showing discovery, environment preparation, build, device identity, user confirmation, flash, and application-log verification.</desc>
+  <defs>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#d8d1c3" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="380" fill="#f4f0e7"/>
+  <rect width="1200" height="380" fill="url(#grid)" opacity=".55"/>
+  <path d="M48 54H1152M48 316H1152" stroke="#242321" stroke-width="2"/>
+  <text x="52" y="42" fill="#b72b24" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700" letter-spacing="2">AGENT-FIRST / ESP-IDF FIELD NOTE 01</text>
+  <text x="52" y="128" fill="#1d1c1a" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="66" font-weight="750" letter-spacing="-3">esp-idf-cy</text>
+  <text x="52" y="170" fill="#34312d" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="24">From an unknown machine to a verified ESP32 application.</text>
+  <text x="52" y="210" fill="#5b554e" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="18">Environment setup, build, safe flashing, serial evidence, and troubleshooting for macOS and Windows.</text>
+  <g transform="translate(52 252)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">
+    <text x="0" y="0" fill="#777068">01 / DISCOVER</text>
+    <text x="184" y="0" fill="#777068">02 / PREPARE</text>
+    <text x="368" y="0" fill="#777068">03 / BUILD</text>
+    <text x="552" y="0" fill="#777068">04 / IDENTIFY</text>
+    <text x="736" y="0" fill="#777068">05 / FLASH</text>
+    <text x="920" y="0" fill="#b72b24" font-weight="700">06 / VERIFY</text>
+  </g>
+  <g transform="translate(52 278)">
+    <path d="M0 0H1104" stroke="#242321" stroke-width="2"/>
+    <g fill="#f4f0e7" stroke="#242321" stroke-width="2">
+      <circle cx="0" cy="0" r="7"/><circle cx="184" cy="0" r="7"/><circle cx="368" cy="0" r="7"/>
+      <circle cx="552" cy="0" r="7"/><circle cx="736" cy="0" r="7"/>
+    </g>
+    <circle cx="920" cy="0" r="8" fill="#b72b24"/>
+    <path d="M920 0H1104" stroke="#b72b24" stroke-width="4"/>
+  </g>
+  <text x="1036" y="104" fill="#b72b24" font-family="Georgia, Songti SC, serif" font-size="88" font-weight="700">01</text>
+  <text x="1040" y="130" fill="#5b554e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" letter-spacing="1">FIELD / NOTE</text>
+  <text x="52" y="352" fill="#5b554e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">flash exit 0 ≠ application verified</text>
+  <text x="1150" y="352" text-anchor="end" fill="#5b554e" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">macOS / Windows · GPL-3.0-only</text>
+</svg>
